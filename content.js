@@ -432,6 +432,33 @@
         #${ROOT_ID} .yto-row-title {
           font-weight: 600;
         }
+        #${ROOT_ID} .yto-section-toggle {
+          width: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          font-size: 12px;
+          font-weight: 600;
+          text-align: left;
+        }
+        #${ROOT_ID} .yto-section-toggle::after {
+          content: '▾';
+          font-size: 11px;
+          opacity: 0.8;
+          transform: rotate(-90deg);
+          transition: transform 160ms ease;
+        }
+        #${ROOT_ID} .yto-section-toggle[data-expanded="1"]::after {
+          transform: rotate(0deg);
+        }
+        #${ROOT_ID} .yto-section-body {
+          display: none;
+          padding-top: 10px;
+        }
+        #${ROOT_ID} .yto-section-body.is-open {
+          display: block;
+        }
         #${ROOT_ID} .yto-panel input[type="range"] { width: 100%; }
         #${ROOT_ID} .yto-panel input[type="text"],
         #${ROOT_ID} .yto-panel input[type="password"] {
@@ -534,24 +561,29 @@
           <input class="yto-width" type="range" min="40" max="95" step="1" />
         </label>
         <div class="yto-divider"></div>
-        <label class="yto-row">
-          <span class="yto-inline">
-            <input class="yto-translation-enabled" type="checkbox" />
-            <span class="yto-row-title">翻訳を有効化</span>
-          </span>
-        </label>
-        <label class="yto-row">
-          <span class="yto-row-title">Gemini API Key</span>
-          <input class="yto-api-key" type="password" placeholder="AIza..." autocomplete="off" />
-        </label>
-        <label class="yto-row">
-          <span class="yto-row-title">Gemini Model</span>
-          <input class="yto-model" type="text" placeholder="gemini-3.1-flash-lite-preview" />
-        </label>
-        <div class="yto-actions">
-          <button class="yto-save" type="button">翻訳設定を保存</button>
+        <div class="yto-row">
+          <button class="yto-section-toggle yto-translation-toggle" type="button" data-expanded="0">翻訳設定</button>
+          <div class="yto-section-body yto-translation-section">
+            <label class="yto-row">
+              <span class="yto-inline">
+                <input class="yto-translation-enabled" type="checkbox" />
+                <span class="yto-row-title">翻訳を有効化</span>
+              </span>
+            </label>
+            <label class="yto-row">
+              <span class="yto-row-title">Gemini API Key</span>
+              <input class="yto-api-key" type="password" placeholder="AIza..." autocomplete="off" />
+            </label>
+            <label class="yto-row">
+              <span class="yto-row-title">Gemini Model</span>
+              <input class="yto-model" type="text" placeholder="gemini-3.1-flash-lite-preview" />
+            </label>
+            <div class="yto-actions">
+              <button class="yto-save" type="button">翻訳設定を保存</button>
+            </div>
+            <div class="yto-note">翻訳は5ブロック単位で順番に実行します。未翻訳の区間は原文を暫定表示します。</div>
+          </div>
         </div>
-        <div class="yto-note">翻訳は5ブロック単位で順番に実行します。未翻訳の区間は原文を暫定表示します。</div>
         <div class="yto-divider"></div>
         <button class="yto-reset" type="button">位置をリセット</button>
       </div>
@@ -574,6 +606,8 @@
       font: root.querySelector('.yto-font'),
       bg: root.querySelector('.yto-bg'),
       width: root.querySelector('.yto-width'),
+      translationToggle: root.querySelector('.yto-translation-toggle'),
+      translationSection: root.querySelector('.yto-translation-section'),
       translationEnabled: root.querySelector('.yto-translation-enabled'),
       apiKey: root.querySelector('.yto-api-key'),
       model: root.querySelector('.yto-model'),
@@ -608,6 +642,13 @@
       ui.model.value = state.formDraft.translationModel;
     }
     renderStatus();
+  }
+
+  function setTranslationSectionExpanded(expanded) {
+    const ui = state.ui;
+    if (!ui?.translationToggle || !ui?.translationSection) return;
+    ui.translationToggle.dataset.expanded = expanded ? '1' : '0';
+    ui.translationSection.classList.toggle('is-open', expanded);
   }
 
   function resetPosition() {
@@ -656,6 +697,11 @@
   function bindUi(ui) {
     ui.gear.addEventListener('click', () => {
       ui.panel.classList.toggle('is-open');
+    });
+
+    ui.translationToggle.addEventListener('click', () => {
+      const expanded = ui.translationToggle.dataset.expanded === '1';
+      setTranslationSectionExpanded(!expanded);
     });
 
     ui.font.addEventListener('input', () => {
