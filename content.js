@@ -252,37 +252,14 @@
     const text = parts.join('\n');
     const hasError = state.status.transcriptError || state.status.translationError;
     const signature = `${hasError ? 'error' : 'ok'}:${text}`;
-    const previousSignature = state.statusUi.signature;
-    const previousHadError = previousSignature.startsWith('error:');
-    const hadVisibleMessage = Boolean(previousSignature);
-    const previousTranscriptText = state.statusUi.previousTranscriptText || '';
-    const transcriptTextChanged = previousTranscriptText !== state.status.transcriptText;
 
     if (signature !== state.statusUi.signature) {
       state.statusUi.signature = signature;
-      if (text) {
-        const shouldAutoExpand =
-          !hadVisibleMessage ||
-          (!previousHadError && hasError) ||
-          (transcriptTextChanged && (
-            state.status.transcriptText.includes('読み込んでいます') ||
-            state.status.transcriptText.includes('読み込みました')
-          ));
-
-        if (shouldAutoExpand) {
-          state.statusUi.expanded = true;
-        }
-        if (!hasError && shouldAutoExpand) {
-          scheduleStatusCollapse();
-        } else if (hasError) {
-          clearStatusCollapseTimer();
-        }
-      } else {
+      if (!text) {
         state.statusUi.expanded = false;
         clearStatusCollapseTimer();
       }
     }
-    state.statusUi.previousTranscriptText = state.status.transcriptText;
 
     ui.statusBubble.textContent = text;
     ui.statusShell.dataset.error = hasError ? '1' : '0';
