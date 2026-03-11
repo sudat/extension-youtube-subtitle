@@ -6,6 +6,7 @@
   const NAV_EVENT = 'yt-transcript-overlay:navigation';
   const DISPLAY_GROUP_SIZE = 5;
   const TRANSLATION_WINDOW_SIZE = 3;
+  const COPY_FEEDBACK_MS = 1800;
   const GEMINI_PROVIDER = 'gemini';
   const ZAI_PROVIDER = 'z-ai';
   const GEMINI_DEFAULT_MODEL = 'gemini-3.1-flash-lite-preview';
@@ -60,6 +61,11 @@
       signature: '',
       expanded: false,
       collapseTimer: null
+    },
+    copyUi: {
+      status: 'idle',
+      message: '',
+      timer: null
     },
     translation: {
       requestKey: '',
@@ -176,6 +182,84 @@
     return String(text || '')
       .replace(/\s+/g, ' ')
       .trim();
+  }
+
+  function buildPlainTranscriptText(segments = state.rawSegments) {
+    const helper = globalThis.YtTranscriptCopy;
+    if (helper?.buildPlainTranscriptText) {
+      return helper.buildPlainTranscriptText(segments);
+    }
+
+    return (Array.isArray(segments) ? segments : [])
+      .map((segment) => sanitizeText(segment?.text))
+      .filter(Boolean)
+      .join(' ');
+  }
+
+  async function copyTextToClipboard(text) {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', 'readonly');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    textarea.style.pointerEvents = 'none';
+    document.body.appendChild(textarea);
+    textarea.select();
+
+    try {
+      const success = document.execCommand('copy');
+      if (!success) {
+        throw new Error('execCommand copy failed');
+      }
+    } finally {
+      textarea.remove();
+    }
+  }
+
+  function clearCopyFeedbackTimer() {
+    if (!state.copyUi.timer) return;
+    clearTimeout(state.copyUi.timer);
+    state.copyUi.timer = null;
+  }
+
+  function renderCopyButton() {
+    const ui = state.ui;
+    if (!ui?.copyButton) return;
+
+    const hasTranscript = Boolean(buildPlainTranscriptText());
+    ui.copyButton.style.display = hasTranscript ? 'inline-flex' : 'none';
+
+    if (!hasTranscript) return;
+
+    const stateLabelMap = {
+      idle: '元字幕全文をコピー',
+      copied: state.copyUi.message || 'コピーしました',
+      error: state.copyUi.message || 'コピーに失敗しました'
+    };
+    const label = stateLabelMap[state.copyUi.status] || stateLabelMap.idle;
+    ui.copyButton.dataset.state = state.copyUi.status;
+    ui.copyButton.setAttribute('aria-label', label);
+    ui.copyButton.title = label;
+  }
+
+  function setCopyButtonFeedback(status, message = '') {
+    clearCopyFeedbackTimer();
+    state.copyUi.status = status;
+    state.copyUi.message = message;
+    renderCopyButton();
+
+    if (status === 'idle') return;
+
+    state.copyUi.timer = window.setTimeout(() => {
+      state.copyUi.status = 'idle';
+      state.copyUi.message = '';
+      renderCopyButton();
+    }, COPY_FEEDBACK_MS);
   }
 
   function getTranslationProviderMeta(provider = GEMINI_PROVIDER) {
@@ -473,6 +557,39 @@
         #${ROOT_ID} .yto-gear:hover {
           background: rgba(15, 15, 15, 0.9);
         }
+        #${ROOT_ID} .yto-copy {
+          position: absolute;
+          right: 14px;
+          bottom: 56px;
+          width: 32px;
+          height: 32px;
+          border: 0;
+          border-radius: 999px;
+          background: rgba(15, 15, 15, 0.72);
+          color: rgba(255,255,255,0.96);
+          cursor: pointer;
+          pointer-events: auto;
+          display: none;
+          align-items: center;
+          justify-content: center;
+          font-size: 15px;
+          box-shadow: 0 8px 18px rgba(0,0,0,0.26);
+          transition: transform 160ms ease, background 160ms ease, opacity 160ms ease;
+          opacity: 0.82;
+        }
+        #${ROOT_ID} .yto-copy:hover {
+          transform: translateY(-1px);
+          background: rgba(15, 15, 15, 0.9);
+          opacity: 1;
+        }
+        #${ROOT_ID} .yto-copy[data-state="copied"] {
+          background: rgba(32, 132, 76, 0.92);
+          opacity: 1;
+        }
+        #${ROOT_ID} .yto-copy[data-state="error"] {
+          background: rgba(180, 28, 28, 0.92);
+          opacity: 1;
+        }
         #${ROOT_ID} .yto-panel {
           position: absolute;
           right: 12px;
@@ -618,6 +735,7 @@
         <div class="yto-status"></div>
       </div>
       <button class="yto-gear" type="button" title="字幕設定">⚙</button>
+      <button class="yto-copy" type="button" aria-label="元字幕全文をコピー" title="元字幕全文をコピー">⎘</button>
       <div class="yto-panel">
         <label class="yto-row">
           <span class="yto-row-title">文字サイズ</span>
@@ -679,6 +797,7 @@
       statusIcon: root.querySelector('.yto-status-icon'),
       statusBubble: root.querySelector('.yto-status'),
       gear: root.querySelector('.yto-gear'),
+      copyButton: root.querySelector('.yto-copy'),
       panel: root.querySelector('.yto-panel'),
       subtitle: root.querySelector('.yto-subtitle'),
       font: root.querySelector('.yto-font'),
@@ -701,6 +820,7 @@
     state.ui = ui;
     applySettingsToUi();
     renderStatus();
+    renderCopyButton();
     return ui;
   }
 
@@ -732,6 +852,7 @@
       ui.model.value = state.formDraft.translationModel;
     }
     renderStatus();
+    renderCopyButton();
   }
 
   function setTranslationSectionExpanded(expanded) {
@@ -869,6 +990,23 @@
       await persistTranslationSettings();
     });
     ui.reset.addEventListener('click', resetPosition);
+    ui.copyButton.addEventListener('click', async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const transcriptText = buildPlainTranscriptText();
+      if (!transcriptText) {
+        setCopyButtonFeedback('error', 'コピーできる字幕がまだありません');
+        return;
+      }
+
+      try {
+        await copyTextToClipboard(transcriptText);
+        setCopyButtonFeedback('copied', '元字幕をコピーしました');
+      } catch (error) {
+        log('copy transcript failed', error);
+        setCopyButtonFeedback('error', 'コピーに失敗しました');
+      }
+    });
 
     ui.statusIcon.addEventListener('click', (event) => {
       event.preventDefault();
@@ -2039,6 +2177,7 @@
       state.currentTrackLabel = '';
       state.currentTranscriptMeta = null;
       resetTranslationState();
+      setCopyButtonFeedback('idle');
       setSubtitleText('');
       setStatusParts({
         transcriptText: 'YouTube の動画ページを開いてください。',
@@ -2053,8 +2192,14 @@
 
     const requestId = ++state.transcriptRequestId;
     state.videoId = videoId;
+    state.rawSegments = [];
+    state.groupedSegments = [];
     state.activeIndex = -1;
     state.activeText = '';
+    state.currentTrackLabel = '';
+    state.currentTranscriptMeta = null;
+    resetTranslationState();
+    setCopyButtonFeedback('idle');
     setSubtitleText('');
     setStatusParts({
       transcriptText: '字幕を読み込んでいます…',
@@ -2081,6 +2226,7 @@
         transcriptError: false
       });
       setupTranslationState();
+      renderCopyButton();
       syncSubtitle();
     } catch (error) {
       if (requestId !== state.transcriptRequestId) return;
@@ -2091,6 +2237,7 @@
       state.currentTrackLabel = '';
       state.currentTranscriptMeta = null;
       resetTranslationState();
+      setCopyButtonFeedback('idle');
       setSubtitleText('');
       setStatusParts({
         transcriptText: error?.message || '字幕の読み込みに失敗しました。',
