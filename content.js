@@ -5,7 +5,10 @@
   const REQUEST_EVENT = 'yt-transcript-overlay:request-player-response';
   const NAV_EVENT = 'yt-transcript-overlay:navigation';
   const DISPLAY_GROUP_SIZE = 5;
-  const TRANSLATION_WINDOW_SIZE = 5;
+  const TRANSLATION_WINDOW_SIZE = 3;
+  const GEMINI_PROVIDER = 'gemini';
+  const ZAI_PROVIDER = 'z-ai';
+  const GEMINI_DEFAULT_MODEL = 'gemini-3.1-flash-lite-preview';
 
   const DEFAULT_SETTINGS = {
     enabled: true,
@@ -16,8 +19,13 @@
     yPct: 84,
     showStatus: true,
     translationEnabled: false,
+    translationProvider: GEMINI_PROVIDER,
     translationApiKey: '',
-    translationModel: 'gemini-3.1-flash-lite-preview'
+    translationModel: GEMINI_DEFAULT_MODEL,
+    translationGeminiApiKey: '',
+    translationGeminiModel: GEMINI_DEFAULT_MODEL,
+    translationZaiApiKey: '',
+    translationZaiModel: ''
   };
 
   const state = {
@@ -38,6 +46,7 @@
     dragging: null,
     statusDragging: null,
     formDraft: {
+      translationProvider: DEFAULT_SETTINGS.translationProvider,
       translationApiKey: '',
       translationModel: DEFAULT_SETTINGS.translationModel
     },
@@ -114,17 +123,37 @@
   async function loadSettings() {
     const stored = await chrome.storage.local.get(DEFAULT_SETTINGS);
     state.settings = { ...DEFAULT_SETTINGS, ...stored };
+    if (!state.settings.translationProvider) {
+      state.settings.translationProvider = GEMINI_PROVIDER;
+    }
     if (
-      state.settings.translationModel === 'gemini-3.1-flash-lite' ||
-      state.settings.translationModel === 'gemini-2.5-flash-lite'
+      state.settings.translationGeminiModel === 'gemini-3.1-flash-lite' ||
+      state.settings.translationGeminiModel === 'gemini-2.5-flash-lite'
     ) {
-      state.settings.translationModel = DEFAULT_SETTINGS.translationModel;
+      state.settings.translationGeminiModel = GEMINI_DEFAULT_MODEL;
       try {
-        await chrome.storage.local.set({ translationModel: DEFAULT_SETTINGS.translationModel });
+        await chrome.storage.local.set({ translationGeminiModel: GEMINI_DEFAULT_MODEL });
       } catch {}
     }
-    state.formDraft.translationApiKey = state.settings.translationApiKey || '';
-    state.formDraft.translationModel = state.settings.translationModel || DEFAULT_SETTINGS.translationModel;
+    const migration = {};
+    if (state.settings.translationApiKey && !state.settings.translationGeminiApiKey) {
+      state.settings.translationGeminiApiKey = state.settings.translationApiKey;
+      migration.translationGeminiApiKey = state.settings.translationApiKey;
+    }
+    if (
+      state.settings.translationModel &&
+      state.settings.translationModel !== state.settings.translationGeminiModel &&
+      state.settings.translationGeminiModel === GEMINI_DEFAULT_MODEL
+    ) {
+      state.settings.translationGeminiModel = state.settings.translationModel;
+      migration.translationGeminiModel = state.settings.translationModel;
+    }
+    if (Object.keys(migration).length) {
+      try {
+        await chrome.storage.local.set(migration);
+      } catch {}
+    }
+    setTranslationDraftFromSettings();
   }
 
   function saveSettings(partial) {
@@ -147,6 +176,67 @@
     return String(text || '')
       .replace(/\s+/g, ' ')
       .trim();
+  }
+
+  function getTranslationProviderMeta(provider = GEMINI_PROVIDER) {
+    if (provider === ZAI_PROVIDER) {
+      return {
+        id: ZAI_PROVIDER,
+        label: 'Z.AI',
+        apiKeyLabel: 'Z.AI API Key',
+        apiKeyPlaceholder: 'Bearer 用 API key',
+        modelLabel: 'Z.AI Model',
+        modelPlaceholder: 'glm-4.5-air',
+        note: 'Z.AI Coding Plan は専用 endpoint https://api.z.ai/api/coding/paas/v4 を使います。',
+        defaultModel: 'glm-4.5-air'
+      };
+    }
+
+    return {
+      id: GEMINI_PROVIDER,
+      label: 'Gemini',
+      apiKeyLabel: 'Gemini API Key',
+      apiKeyPlaceholder: 'AIza...',
+      modelLabel: 'Gemini Model',
+      modelPlaceholder: GEMINI_DEFAULT_MODEL,
+      note: '翻訳は3ブロック単位で順番に実行します。未翻訳の区間は原文を暫定表示します。',
+      defaultModel: GEMINI_DEFAULT_MODEL
+    };
+  }
+
+  function getProviderSettingKeys(provider = GEMINI_PROVIDER) {
+    if (provider === ZAI_PROVIDER) {
+      return {
+        apiKey: 'translationZaiApiKey',
+        model: 'translationZaiModel'
+      };
+    }
+
+    return {
+      apiKey: 'translationGeminiApiKey',
+      model: 'translationGeminiModel'
+    };
+  }
+
+  function getTranslationConfig(source, provider = source?.translationProvider || GEMINI_PROVIDER) {
+    const meta = getTranslationProviderMeta(provider);
+    const keys = getProviderSettingKeys(provider);
+    const apiKey = sanitizeText(source?.[keys.apiKey] ?? source?.translationApiKey ?? '');
+    const model = sanitizeText(source?.[keys.model] ?? source?.translationModel ?? '') || meta.defaultModel;
+
+    return {
+      provider,
+      apiKey,
+      model,
+      meta
+    };
+  }
+
+  function setTranslationDraftFromSettings(provider = state.settings.translationProvider || GEMINI_PROVIDER) {
+    const config = getTranslationConfig(state.settings, provider);
+    state.formDraft.translationProvider = provider;
+    state.formDraft.translationApiKey = config.apiKey;
+    state.formDraft.translationModel = config.model;
   }
 
   function parseTimestampText(text) {
@@ -438,13 +528,17 @@
         }
         #${ROOT_ID} .yto-panel input[type="range"] { width: 100%; }
         #${ROOT_ID} .yto-panel input[type="text"],
-        #${ROOT_ID} .yto-panel input[type="password"] {
+        #${ROOT_ID} .yto-panel input[type="password"],
+        #${ROOT_ID} .yto-panel select {
           width: 100%;
           border: 1px solid rgba(255,255,255,0.18);
           border-radius: 10px;
           padding: 8px 10px;
           background: rgba(255,255,255,0.08);
           color: #fff;
+        }
+        #${ROOT_ID} .yto-panel select option {
+          color: #111;
         }
         #${ROOT_ID} .yto-panel input::placeholder {
           color: rgba(255,255,255,0.55);
@@ -548,17 +642,24 @@
               </span>
             </label>
             <label class="yto-row">
-              <span class="yto-row-title">Gemini API Key</span>
+              <span class="yto-row-title">プロバイダ</span>
+              <select class="yto-provider">
+                <option value="gemini">Gemini</option>
+                <option value="z-ai">Z.AI</option>
+              </select>
+            </label>
+            <label class="yto-row">
+              <span class="yto-row-title yto-api-key-label">Gemini API Key</span>
               <input class="yto-api-key" type="password" placeholder="AIza..." autocomplete="off" />
             </label>
             <label class="yto-row">
-              <span class="yto-row-title">Gemini Model</span>
+              <span class="yto-row-title yto-model-label">Gemini Model</span>
               <input class="yto-model" type="text" placeholder="gemini-3.1-flash-lite-preview" />
             </label>
             <div class="yto-actions">
               <button class="yto-save" type="button">翻訳設定を保存</button>
             </div>
-            <div class="yto-note">翻訳は5ブロック単位で順番に実行します。未翻訳の区間は原文を暫定表示します。</div>
+            <div class="yto-note yto-translation-note">翻訳は3ブロック単位で順番に実行します。未翻訳の区間は原文を暫定表示します。</div>
           </div>
         </div>
         <div class="yto-divider"></div>
@@ -586,8 +687,12 @@
       translationToggle: root.querySelector('.yto-translation-toggle'),
       translationSection: root.querySelector('.yto-translation-section'),
       translationEnabled: root.querySelector('.yto-translation-enabled'),
+      provider: root.querySelector('.yto-provider'),
+      apiKeyLabel: root.querySelector('.yto-api-key-label'),
       apiKey: root.querySelector('.yto-api-key'),
+      modelLabel: root.querySelector('.yto-model-label'),
       model: root.querySelector('.yto-model'),
+      translationNote: root.querySelector('.yto-translation-note'),
       save: root.querySelector('.yto-save'),
       reset: root.querySelector('.yto-reset')
     };
@@ -602,6 +707,8 @@
   function applySettingsToUi() {
     const ui = state.ui;
     if (!ui?.root) return;
+    const provider = state.formDraft.translationProvider || state.settings.translationProvider || GEMINI_PROVIDER;
+    const providerMeta = getTranslationProviderMeta(provider);
     ui.subtitle.style.fontSize = `${state.settings.fontSize}px`;
     ui.subtitle.style.maxWidth = `${state.settings.maxWidthPct}%`;
     ui.subtitle.style.background = `rgba(0, 0, 0, ${state.settings.bgOpacity})`;
@@ -612,6 +719,12 @@
     ui.bg.value = String(state.settings.bgOpacity);
     ui.width.value = String(state.settings.maxWidthPct);
     ui.translationEnabled.checked = Boolean(state.settings.translationEnabled);
+    ui.provider.value = provider;
+    ui.apiKeyLabel.textContent = providerMeta.apiKeyLabel;
+    ui.apiKey.placeholder = providerMeta.apiKeyPlaceholder;
+    ui.modelLabel.textContent = providerMeta.modelLabel;
+    ui.model.placeholder = providerMeta.modelPlaceholder;
+    ui.translationNote.textContent = providerMeta.note;
     if (document.activeElement !== ui.apiKey) {
       ui.apiKey.value = state.formDraft.translationApiKey;
     }
@@ -658,12 +771,21 @@
   }
 
   async function persistTranslationSettings() {
+    const provider = state.formDraft.translationProvider || GEMINI_PROVIDER;
+    const providerMeta = getTranslationProviderMeta(provider);
+    const keys = getProviderSettingKeys(provider);
     const translationApiKey = sanitizeText(state.formDraft.translationApiKey);
-    const translationModel = sanitizeText(state.formDraft.translationModel) || DEFAULT_SETTINGS.translationModel;
+    const translationModel = sanitizeText(state.formDraft.translationModel) || providerMeta.defaultModel;
     await persistSettings({
+      translationProvider: provider,
       translationApiKey,
-      translationModel
+      translationModel,
+      [keys.apiKey]: translationApiKey,
+      [keys.model]: translationModel
     });
+    state.settings.translationProvider = provider;
+    state.settings[keys.apiKey] = translationApiKey;
+    state.settings[keys.model] = translationModel;
     state.formDraft.translationApiKey = translationApiKey;
     state.formDraft.translationModel = translationModel;
     setTranslationStatus('翻訳設定を保存しました。', false);
@@ -695,6 +817,13 @@
     });
     ui.translationEnabled.addEventListener('change', async () => {
       await persistSettings({ translationEnabled: ui.translationEnabled.checked });
+      queueTranslationRestart();
+    });
+    ui.provider.addEventListener('change', async () => {
+      state.formDraft.translationProvider = ui.provider.value;
+      setTranslationDraftFromSettings(ui.provider.value);
+      await persistSettings({ translationProvider: ui.provider.value });
+      applySettingsToUi();
       queueTranslationRestart();
     });
     ui.apiKey.addEventListener('input', () => {
@@ -976,6 +1105,7 @@
   }
 
   function updateTranslationStatus() {
+    const translationConfig = getTranslationConfig(state.settings, state.settings.translationProvider);
     if (!state.settings.translationEnabled) {
       setTranslationStatus('', false);
       return;
@@ -986,8 +1116,13 @@
       return;
     }
 
-    if (!state.settings.translationApiKey) {
-      setTranslationStatus('翻訳は有効です。Gemini API Key を入力すると翻訳を開始します。', false);
+    if (!translationConfig.apiKey) {
+      setTranslationStatus(`翻訳は有効です。${translationConfig.meta.apiKeyLabel} を入力すると翻訳を開始します。`, false);
+      return;
+    }
+
+    if (!translationConfig.model) {
+      setTranslationStatus(`翻訳は有効です。${translationConfig.meta.modelLabel} を入力すると翻訳を開始します。`, false);
       return;
     }
 
@@ -1021,10 +1156,11 @@
       setTranslationStatus(`${progress}。失敗 ${errorCount} 件。${latestError ? ` 最新エラー: ${latestError}` : ''}`, true);
       return;
     }
-    setTranslationStatus(`${progress}。5ブロック単位で順番に翻訳しています。`, false);
+    setTranslationStatus(`${progress}。3ブロック単位で順番に翻訳しています。`, false);
   }
 
   function setupTranslationState() {
+    const translationConfig = getTranslationConfig(state.settings, state.settings.translationProvider);
     resetTranslationState();
 
     if (!state.settings.translationEnabled) {
@@ -1035,7 +1171,7 @@
       updateTranslationStatus();
       return;
     }
-    if (!state.settings.translationApiKey) {
+    if (!translationConfig.apiKey || !translationConfig.model) {
       updateTranslationStatus();
       return;
     }
@@ -1066,8 +1202,9 @@
   }
 
   async function processTranslationQueue() {
+    const translationConfig = getTranslationConfig(state.settings, state.settings.translationProvider);
     if (!state.settings.translationEnabled) return;
-    if (!state.settings.translationApiKey) return;
+    if (!translationConfig.apiKey || !translationConfig.model) return;
     if (state.translation.inFlight != null) return;
 
     const nextWindowIndex = state.translation.queue.find((windowIndex) => {
@@ -1093,9 +1230,10 @@
     const chunk = state.groupedSegments.slice(windowMeta.startIndex, windowMeta.endIndex + 1);
     const payload = {
       type: 'translateWindow',
+      provider: translationConfig.provider,
       requestKey: state.translation.requestKey,
       videoId: state.videoId,
-      model: state.settings.translationModel,
+      model: translationConfig.model,
       targetLanguage: 'Japanese',
       entryCount: chunk.length,
       srt: buildSrtFromSegments(chunk)
