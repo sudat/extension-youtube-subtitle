@@ -10,6 +10,7 @@
   const GEMINI_PROVIDER = 'gemini';
   const ZAI_PROVIDER = 'z-ai';
   const GEMINI_DEFAULT_MODEL = 'gemini-3.1-flash-lite-preview';
+  const syncHelpers = globalThis.YtTranscriptSync;
 
   const DEFAULT_SETTINGS = {
     enabled: true,
@@ -1154,6 +1155,40 @@
     return rows;
   }
 
+  function buildTranscriptLoadPlan() {
+    if (syncHelpers?.buildTranscriptLoadPlan) {
+      return syncHelpers.buildTranscriptLoadPlan();
+    }
+    return ['youtubei', 'json3', 'panel'];
+  }
+
+  function parseXmlTiming(node) {
+    const startAttrName = node.hasAttribute('start') ? 'start' : (node.hasAttribute('t') ? 't' : null);
+    const durAttrName = node.hasAttribute('dur') ? 'dur' : (node.hasAttribute('d') ? 'd' : null);
+    const startRaw = startAttrName ? node.getAttribute(startAttrName) : null;
+    const durRaw = durAttrName ? node.getAttribute(durAttrName) : null;
+
+    if (syncHelpers?.parseXmlTiming) {
+      return syncHelpers.parseXmlTiming({
+        startAttrName,
+        startRaw,
+        durAttrName,
+        durRaw
+      });
+    }
+
+    const startValue = Number(startRaw);
+    const durationValue = durRaw == null ? 0 : Number(durRaw);
+    if (!Number.isFinite(startValue)) {
+      return { startMs: null, durationMs: 0 };
+    }
+
+    return {
+      startMs: Math.max(0, Math.round(startAttrName === 'start' ? startValue * 1000 : startValue)),
+      durationMs: Math.max(0, Math.round(durAttrName === 'dur' ? durationValue * 1000 : durationValue))
+    };
+  }
+
   function fillSegmentEndTimes(rows) {
     return rows.map((row, idx) => {
       const next = rows[idx + 1];
@@ -1853,20 +1888,8 @@
     const rows = [];
     const nodes = Array.from(xml.querySelectorAll('text, p'));
     for (const node of nodes) {
-      const startRaw = node.getAttribute('start') ?? node.getAttribute('t');
-      const durRaw = node.getAttribute('dur') ?? node.getAttribute('d');
-      if (startRaw == null) continue;
-
-      let startMs = Number(startRaw);
-      let durationMs = durRaw == null ? 0 : Number(durRaw);
-      if (!Number.isFinite(startMs)) continue;
-
-      const looksLikeSeconds = String(startRaw).includes('.') || startMs < 1000;
-      if (looksLikeSeconds) startMs *= 1000;
-      if (durRaw != null) {
-        const durLooksLikeSeconds = String(durRaw).includes('.') || durationMs < 1000;
-        if (durLooksLikeSeconds) durationMs *= 1000;
-      }
+      const { startMs, durationMs } = parseXmlTiming(node);
+      if (startMs == null) continue;
 
       let body = '';
       const segs = Array.from(node.querySelectorAll('s'));
@@ -1879,7 +1902,7 @@
       const clean = sanitizeText(decodeHtmlEntities(body));
       if (!clean) continue;
       rows.push({
-        startMs: Math.max(0, Math.round(startMs)),
+        startMs,
         endMs: Math.max(0, Math.round(startMs + Math.max(durationMs, 1000))),
         text: clean
       });
@@ -2084,41 +2107,62 @@
 
     const reasons = [];
 
-    try {
-      const opened = await maybeOpenTranscriptPanel();
-      if (opened) {
-        const panelRows = parseTranscriptPanelRows();
-        if (panelRows.length) {
-          return {
-            segments: panelRows,
-            trackLabel: 'Transcript panel',
-            transcriptMeta: await inferTranscriptMeta()
-          };
+    const loaders = {
+      youtubei: async () => {
+        try {
+          return await fetchYoutubeiTranscript(videoId);
+        } catch (error) {
+          reasons.push(error?.message || 'Transcript endpoint の取得に失敗しました。');
+          return null;
         }
-        reasons.push('Transcript panel は開いたが行を取得できませんでした。');
-      } else {
-        reasons.push('Transcript panel を開けませんでした。');
+      },
+      json3: async () => {
+        try {
+          return await fetchJson3Fallback(videoId);
+        } catch (error) {
+          reasons.push(error?.message || 'captionTracks の取得に失敗しました。');
+          return null;
+        }
+      },
+      panel: async () => {
+        try {
+          const opened = await maybeOpenTranscriptPanel();
+          if (opened) {
+            const panelRows = parseTranscriptPanelRows();
+            if (panelRows.length) {
+              return {
+                segments: panelRows,
+                trackLabel: 'Transcript panel',
+                transcriptMeta: await inferTranscriptMeta()
+              };
+            }
+            reasons.push('Transcript panel は開いたが行を取得できませんでした。');
+            return null;
+          }
+          reasons.push('Transcript panel を開けませんでした。');
+          return null;
+        } catch (error) {
+          reasons.push(error?.message || 'Transcript panel の取得に失敗しました。');
+          return null;
+        }
       }
-    } catch (error) {
-      reasons.push(error?.message || 'Transcript panel の取得に失敗しました。');
-    }
+    };
 
-    try {
-      return await fetchYoutubeiTranscript(videoId);
-    } catch (error) {
-      reasons.push(error?.message || 'Transcript endpoint の取得に失敗しました。');
-    }
-
-    try {
-      return await fetchJson3Fallback(videoId);
-    } catch (error) {
-      reasons.push(error?.message || 'captionTracks の取得に失敗しました。');
+    for (const source of buildTranscriptLoadPlan()) {
+      const result = await loaders[source]?.();
+      if (result?.segments?.length) {
+        return result;
+      }
     }
 
     throw new Error(`字幕取得に失敗しました。${reasons.join(' | ')}`);
   }
 
   function findActiveIndex(currentMs) {
+    if (syncHelpers?.findActiveGroupedIndex) {
+      return syncHelpers.findActiveGroupedIndex(state.groupedSegments, currentMs);
+    }
+
     const rows = state.groupedSegments;
     if (!rows.length) return -1;
     for (let i = 0; i < rows.length; i += 1) {
@@ -2127,7 +2171,7 @@
       if (currentMs >= row.startMs && currentMs < row.endMs) return i;
       if (next && currentMs >= row.startMs && currentMs < next.startMs) return i;
     }
-    return currentMs < rows[0].startMs ? -1 : rows.length - 1;
+    return -1;
   }
 
   function getDisplayText(groupedSegment) {

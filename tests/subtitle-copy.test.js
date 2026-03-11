@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { buildPlainTranscriptText, SUMMARY_PROMPT_PREFIX } = require('./subtitle-copy.js');
+const { buildPlainTranscriptText, SUMMARY_PROMPT_PREFIX } = require('../subtitle-copy.js');
 
 test('buildPlainTranscriptText joins transcript blocks into one sentence', () => {
   const text = buildPlainTranscriptText([

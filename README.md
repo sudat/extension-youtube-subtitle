@@ -48,5 +48,6 @@ YouTube の動画ページで、文字起こしを動画そのものの上に字
 - 1〜5 の次は 6〜10 になり、2〜6 のようなローリング表示はしません
 - YouTube 側の DOM が変わると修正が必要になる場合があります
 - API Key は `chrome.storage.local` に保存されます
+- テストは `tests/` 配下にあり、実行は `node --test tests/*.test.js` で行えます
 - 詳しい設計意図は [docs/design/subtitle-translation-overlay.md](/usr/local/src/dev/wsl/chrome-extension/youtube-subtitle/docs/design/subtitle-translation-overlay.md) を参照してください
 # extension-youtube-subtitle

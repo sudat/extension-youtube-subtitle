@@ -21,7 +21,7 @@
         "https://youtube.com/*",
         "https://m.youtube.com/*"
       ],
-      "js": ["subtitle-copy.js", "content.js"],
+      "js": ["subtitle-copy.js", "transcript-sync.js", "content.js"],
       "run_at": "document_idle"
     }
   ],
