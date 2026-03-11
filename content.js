@@ -750,6 +750,23 @@
     return Math.min(max, Math.max(min, n));
   }
 
+  function getDraggedSubtitlePosition(dragging, event) {
+    const { playerRect, offsetX, offsetY, subtitleRect } = dragging;
+    const halfWidth = subtitleRect.width / 2;
+    const halfHeight = subtitleRect.height / 2;
+    const minCenterX = halfWidth;
+    const maxCenterX = Math.max(halfWidth, playerRect.width - halfWidth);
+    const minCenterY = halfHeight;
+    const maxCenterY = Math.max(halfHeight, playerRect.height - halfHeight);
+    const centerX = clamp(event.clientX - playerRect.left - offsetX + halfWidth, minCenterX, maxCenterX);
+    const centerY = clamp(event.clientY - playerRect.top - offsetY + halfHeight, minCenterY, maxCenterY);
+
+    return {
+      xPct: (centerX / playerRect.width) * 100,
+      yPct: (centerY / playerRect.height) * 100
+    };
+  }
+
   function queueTranslationRestart() {
     if (!state.groupedSegments.length) {
       setStatusParts({
@@ -928,10 +945,14 @@
       if (event.button !== 0) return;
       const player = getPlayerEl();
       if (!player) return;
-      const rect = player.getBoundingClientRect();
+      const playerRect = player.getBoundingClientRect();
+      const subtitleRect = ui.subtitle.getBoundingClientRect();
       state.dragging = {
         pointerId: event.pointerId,
-        rect
+        playerRect,
+        subtitleRect,
+        offsetX: event.clientX - subtitleRect.left,
+        offsetY: event.clientY - subtitleRect.top
       };
       ui.subtitle.classList.add('is-dragging');
       ui.subtitle.setPointerCapture?.(event.pointerId);
@@ -941,9 +962,7 @@
 
     ui.subtitle.addEventListener('pointermove', (event) => {
       if (!state.dragging || state.dragging.pointerId !== event.pointerId) return;
-      const rect = state.dragging.rect;
-      const xPct = clamp(((event.clientX - rect.left) / rect.width) * 100, 5, 95);
-      const yPct = clamp(((event.clientY - rect.top) / rect.height) * 100, 5, 95);
+      const { xPct, yPct } = getDraggedSubtitlePosition(state.dragging, event);
       state.settings.xPct = xPct;
       state.settings.yPct = yPct;
       applySettingsToUi();
