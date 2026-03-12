@@ -830,8 +830,11 @@
     if (!ui?.root) return;
     const provider = state.formDraft.translationProvider || state.settings.translationProvider || GEMINI_PROVIDER;
     const providerMeta = getTranslationProviderMeta(provider);
+    const playerWidth = ui.root.clientWidth || getPlayerEl()?.clientWidth || 0;
+    const subtitleBoxStyle = buildSubtitleBoxStyle(playerWidth, state.settings.maxWidthPct);
     ui.subtitle.style.fontSize = `${state.settings.fontSize}px`;
-    ui.subtitle.style.maxWidth = `${state.settings.maxWidthPct}%`;
+    ui.subtitle.style.width = subtitleBoxStyle.width;
+    ui.subtitle.style.maxWidth = subtitleBoxStyle.maxWidth;
     ui.subtitle.style.background = `rgba(0, 0, 0, ${state.settings.bgOpacity})`;
     ui.subtitle.style.left = `${state.settings.xPct}%`;
     ui.subtitle.style.top = `${state.settings.yPct}%`;
@@ -870,6 +873,21 @@
 
   function clamp(n, min, max) {
     return Math.min(max, Math.max(min, n));
+  }
+
+  function buildSubtitleBoxStyle(playerWidth, maxWidthPct) {
+    if (syncHelpers?.buildSubtitleBoxStyle) {
+      return syncHelpers.buildSubtitleBoxStyle({ playerWidth, maxWidthPct });
+    }
+
+    const safePlayerWidth = Number(playerWidth);
+    const safeWidth = Number.isFinite(safePlayerWidth) ? Math.max(0, safePlayerWidth) : 0;
+    const safePct = clamp(Number(maxWidthPct) || 0, 0, 100);
+
+    return {
+      width: 'max-content',
+      maxWidth: safeWidth ? `${(safeWidth * safePct) / 100}px` : `${safePct}%`
+    };
   }
 
   function getDraggedSubtitlePosition(dragging, event) {

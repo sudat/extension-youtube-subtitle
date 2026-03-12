@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 
 const {
   buildTranscriptLoadPlan,
+  buildSubtitleBoxStyle,
   findActiveGroupedIndex,
   parseXmlTiming
 } = require('../transcript-sync.js');
@@ -50,5 +51,25 @@ test('parseXmlTiming converts start/dur attributes from seconds to milliseconds'
       durRaw: '0.975'
     }),
     { startMs: 90500, durationMs: 975 }
+  );
+});
+
+test('buildSubtitleBoxStyle fixes wrapping width independently from drag position', () => {
+  assert.deepEqual(
+    buildSubtitleBoxStyle({ playerWidth: 1280, maxWidthPct: 78 }),
+    {
+      width: 'max-content',
+      maxWidth: '998.4px'
+    }
+  );
+});
+
+test('buildSubtitleBoxStyle clamps invalid values to the player width bounds', () => {
+  assert.deepEqual(
+    buildSubtitleBoxStyle({ playerWidth: 800, maxWidthPct: 140 }),
+    {
+      width: 'max-content',
+      maxWidth: '800px'
+    }
   );
 });

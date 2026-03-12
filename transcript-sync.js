@@ -45,8 +45,25 @@
     };
   }
 
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+  }
+
+  function buildSubtitleBoxStyle({ playerWidth, maxWidthPct }) {
+    const safePlayerWidth = Number(playerWidth);
+    const safeWidth = Number.isFinite(safePlayerWidth) ? Math.max(0, safePlayerWidth) : 0;
+    const safePct = clamp(Number(maxWidthPct) || 0, 0, 100);
+    const resolvedMaxWidth = safeWidth ? `${(safeWidth * safePct) / 100}px` : `${safePct}%`;
+
+    return {
+      width: 'max-content',
+      maxWidth: resolvedMaxWidth
+    };
+  }
+
   return {
     buildTranscriptLoadPlan,
+    buildSubtitleBoxStyle,
     findActiveGroupedIndex,
     parseXmlTiming
   };
