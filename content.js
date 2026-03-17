@@ -5,6 +5,8 @@
   const REQUEST_EVENT = 'yt-transcript-overlay:request-player-response';
   const NAV_EVENT = 'yt-transcript-overlay:navigation';
   const DISPLAY_GROUP_SIZE = 5;
+  const MIN_DISPLAY_GROUP_SIZE = 1;
+  const MAX_DISPLAY_GROUP_SIZE = 5;
   const TRANSLATION_WINDOW_SIZE = 3;
   const COPY_FEEDBACK_MS = 1800;
   const GEMINI_PROVIDER = 'gemini';
@@ -15,10 +17,11 @@
   const DEFAULT_SETTINGS = {
     enabled: true,
     fontSize: 28,
-    maxWidthPct: 78,
+    maxWidthPct: 85,
     bgOpacity: 0.42,
     xPct: 50,
     yPct: 84,
+    displayGroupSize: DISPLAY_GROUP_SIZE,
     showStatus: true,
     translationEnabled: false,
     translationProvider: GEMINI_PROVIDER,
@@ -130,6 +133,13 @@
   async function loadSettings() {
     const stored = await chrome.storage.local.get(DEFAULT_SETTINGS);
     state.settings = { ...DEFAULT_SETTINGS, ...stored };
+    const normalizedDisplayGroupSize = getDisplayGroupSize(state.settings.displayGroupSize);
+    if (state.settings.displayGroupSize !== normalizedDisplayGroupSize) {
+      state.settings.displayGroupSize = normalizedDisplayGroupSize;
+      try {
+        await chrome.storage.local.set({ displayGroupSize: normalizedDisplayGroupSize });
+      } catch {}
+    }
     if (!state.settings.translationProvider) {
       state.settings.translationProvider = GEMINI_PROVIDER;
     }
@@ -183,6 +193,27 @@
     return String(text || '')
       .replace(/\s+/g, ' ')
       .trim();
+  }
+
+  function getDisplayGroupSize(value = state.settings.displayGroupSize) {
+    if (syncHelpers?.normalizeDisplayGroupSize) {
+      return syncHelpers.normalizeDisplayGroupSize(value);
+    }
+
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue) || numericValue < MIN_DISPLAY_GROUP_SIZE) {
+      return DISPLAY_GROUP_SIZE;
+    }
+
+    return clamp(Math.round(numericValue), MIN_DISPLAY_GROUP_SIZE, MAX_DISPLAY_GROUP_SIZE);
+  }
+
+  function buildTranslationQueueNote() {
+    return `翻訳は${TRANSLATION_WINDOW_SIZE}ブロック単位で順番に実行します。1ブロックは「字幕連結数」の設定に従います。未翻訳の区間は原文を暫定表示します。`;
+  }
+
+  function buildTranscriptSummaryText(rawCount = state.rawSegments.length, groupedCount = state.groupedSegments.length) {
+    return `字幕を読み込みました。${rawCount} 行を ${groupedCount} ブロックに連結しました（${getDisplayGroupSize()} 行/ブロック）。`;
   }
 
   function buildPlainTranscriptText(segments = state.rawSegments) {
@@ -272,7 +303,7 @@
         apiKeyPlaceholder: 'Bearer 用 API key',
         modelLabel: 'Z.AI Model',
         modelPlaceholder: 'glm-4.5-air',
-        note: 'Z.AI Coding Plan は専用 endpoint https://api.z.ai/api/coding/paas/v4 を使います。',
+        note: `Z.AI Coding Plan は専用 endpoint https://api.z.ai/api/coding/paas/v4 を使います。${buildTranslationQueueNote()}`,
         defaultModel: 'glm-4.5-air'
       };
     }
@@ -284,7 +315,7 @@
       apiKeyPlaceholder: 'AIza...',
       modelLabel: 'Gemini Model',
       modelPlaceholder: GEMINI_DEFAULT_MODEL,
-      note: '翻訳は3ブロック単位で順番に実行します。未翻訳の区間は原文を暫定表示します。',
+      note: buildTranslationQueueNote(),
       defaultModel: GEMINI_DEFAULT_MODEL
     };
   }
@@ -703,7 +734,7 @@
           left: 50%;
           top: 84%;
           transform: translate(-50%, -50%);
-          max-width: 78%;
+          max-width: 85%;
           padding: 8px 14px;
           border-radius: 14px;
           background: rgba(0,0,0,0.42);
@@ -750,6 +781,17 @@
           <span class="yto-row-title">幅</span>
           <input class="yto-width" type="range" min="40" max="95" step="1" />
         </label>
+        <label class="yto-row">
+          <span class="yto-row-title">字幕連結数</span>
+          <select class="yto-display-group-size">
+            <option value="1">1 行</option>
+            <option value="2">2 行</option>
+            <option value="3">3 行</option>
+            <option value="4">4 行</option>
+            <option value="5">5 行</option>
+          </select>
+        </label>
+        <div class="yto-note">1ブロックにまとめる元字幕行数です。変更すると表示中の字幕と翻訳キューを再計算します。</div>
         <div class="yto-divider"></div>
         <div class="yto-row">
           <button class="yto-section-toggle yto-translation-toggle" type="button" data-expanded="0">翻訳設定</button>
@@ -778,7 +820,7 @@
             <div class="yto-actions">
               <button class="yto-save" type="button">翻訳設定を保存</button>
             </div>
-            <div class="yto-note yto-translation-note">翻訳は3ブロック単位で順番に実行します。未翻訳の区間は原文を暫定表示します。</div>
+            <div class="yto-note yto-translation-note">翻訳は3ブロック単位で順番に実行します。1ブロックは「字幕連結数」の設定に従います。未翻訳の区間は原文を暫定表示します。</div>
           </div>
         </div>
         <div class="yto-divider"></div>
@@ -804,6 +846,7 @@
       font: root.querySelector('.yto-font'),
       bg: root.querySelector('.yto-bg'),
       width: root.querySelector('.yto-width'),
+      displayGroupSize: root.querySelector('.yto-display-group-size'),
       translationToggle: root.querySelector('.yto-translation-toggle'),
       translationSection: root.querySelector('.yto-translation-section'),
       translationEnabled: root.querySelector('.yto-translation-enabled'),
@@ -842,6 +885,7 @@
     ui.font.value = String(state.settings.fontSize);
     ui.bg.value = String(state.settings.bgOpacity);
     ui.width.value = String(state.settings.maxWidthPct);
+    ui.displayGroupSize.value = String(getDisplayGroupSize());
     ui.translationEnabled.checked = Boolean(state.settings.translationEnabled);
     ui.provider.value = provider;
     ui.apiKeyLabel.textContent = providerMeta.apiKeyLabel;
@@ -920,6 +964,12 @@
     syncSubtitle();
   }
 
+  function regroupTranscriptSegments() {
+    state.groupedSegments = groupSegments(state.rawSegments, getDisplayGroupSize());
+    state.activeIndex = -1;
+    state.activeText = '';
+  }
+
   async function persistSettings(partial) {
     state.settings = { ...state.settings, ...partial };
     try {
@@ -971,6 +1021,23 @@
     ui.width.addEventListener('input', () => {
       saveSettings({ maxWidthPct: Number(ui.width.value) });
       applySettingsToUi();
+    });
+    ui.displayGroupSize.addEventListener('change', async () => {
+      const displayGroupSize = getDisplayGroupSize(ui.displayGroupSize.value);
+      await persistSettings({ displayGroupSize });
+      applySettingsToUi();
+
+      if (state.rawSegments.length) {
+        regroupTranscriptSegments();
+        setStatusParts({
+          transcriptText: state.currentTranscriptMeta?.shouldHideOverlay
+            ? `${buildTranscriptSummaryText()} ${state.currentTranscriptMeta.skipReason}`
+            : buildTranscriptSummaryText(),
+          transcriptError: false
+        });
+      }
+
+      queueTranslationRestart();
     });
     ui.translationEnabled.addEventListener('change', async () => {
       await persistSettings({ translationEnabled: ui.translationEnabled.checked });
@@ -1153,9 +1220,14 @@
   }
 
   function groupSegments(segments, size = DISPLAY_GROUP_SIZE) {
+    if (syncHelpers?.groupTranscriptSegments) {
+      return syncHelpers.groupTranscriptSegments(segments, size);
+    }
+
+    const groupSize = getDisplayGroupSize(size);
     const rows = [];
-    for (let i = 0; i < segments.length; i += size) {
-      const chunk = segments.slice(i, i + size).filter((x) => sanitizeText(x.text));
+    for (let i = 0; i < segments.length; i += groupSize) {
+      const chunk = segments.slice(i, i + groupSize).filter((x) => sanitizeText(x.text));
       if (!chunk.length) continue;
       const startMs = chunk[0].startMs;
       const endMs = Math.max(chunk[chunk.length - 1].endMs || 0, startMs + 1200);
@@ -1366,7 +1438,7 @@
       setTranslationStatus(`${progress}。失敗 ${errorCount} 件。${latestError ? ` 最新エラー: ${latestError}` : ''}`, true);
       return;
     }
-    setTranslationStatus(`${progress}。3ブロック単位で順番に翻訳しています。`, false);
+    setTranslationStatus(`${progress}。${TRANSLATION_WINDOW_SIZE}ブロック単位で順番に翻訳しています。`, false);
   }
 
   function setupTranslationState() {
@@ -2274,13 +2346,13 @@
       const { segments, trackLabel, transcriptMeta } = await loadTranscriptForCurrentVideo(videoId);
       if (requestId !== state.transcriptRequestId) return;
       state.rawSegments = segments;
-      state.groupedSegments = groupSegments(segments, DISPLAY_GROUP_SIZE);
+      state.groupedSegments = groupSegments(segments, getDisplayGroupSize());
       state.currentTrackLabel = trackLabel;
       state.currentTranscriptMeta = transcriptMeta || buildTranscriptMeta(trackLabel || 'unknown');
       if (!state.groupedSegments.length) {
         throw new Error('連結後の字幕が空でした。');
       }
-      const transcriptSummary = `字幕を読み込みました。${state.rawSegments.length} 行を ${state.groupedSegments.length} ブロックに連結しました。`;
+      const transcriptSummary = buildTranscriptSummaryText();
       setStatusParts({
         transcriptText: state.currentTranscriptMeta?.shouldHideOverlay
           ? `${transcriptSummary} ${state.currentTranscriptMeta.skipReason}`

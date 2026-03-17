@@ -5,6 +5,10 @@
   }
   root.YtTranscriptSync = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, () => {
+  const DEFAULT_DISPLAY_GROUP_SIZE = 5;
+  const MIN_DISPLAY_GROUP_SIZE = 1;
+  const MAX_DISPLAY_GROUP_SIZE = 5;
+
   function buildTranscriptLoadPlan() {
     return ['youtubei', 'json3', 'panel'];
   }
@@ -49,6 +53,48 @@
     return Math.min(max, Math.max(min, value));
   }
 
+  function normalizeDisplayGroupSize(value) {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue) || numericValue < MIN_DISPLAY_GROUP_SIZE) {
+      return DEFAULT_DISPLAY_GROUP_SIZE;
+    }
+
+    return clamp(Math.round(numericValue), MIN_DISPLAY_GROUP_SIZE, MAX_DISPLAY_GROUP_SIZE);
+  }
+
+  function sanitizeTranscriptText(text) {
+    return String(text || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function groupTranscriptSegments(segments, size = DEFAULT_DISPLAY_GROUP_SIZE) {
+    const safeSegments = Array.isArray(segments) ? segments : [];
+    const groupSize = normalizeDisplayGroupSize(size);
+    const rows = [];
+
+    for (let i = 0; i < safeSegments.length; i += groupSize) {
+      const chunk = safeSegments.slice(i, i + groupSize).filter((segment) => sanitizeTranscriptText(segment?.text));
+      if (!chunk.length) continue;
+
+      const startMs = Number(chunk[0]?.startMs) || 0;
+      const endMs = Math.max(Number(chunk[chunk.length - 1]?.endMs) || 0, startMs + 1200);
+      const text = sanitizeTranscriptText(chunk.map((segment) => segment?.text || '').join(' '));
+      if (!text) continue;
+
+      rows.push({
+        startMs,
+        endMs,
+        text,
+        translatedText: '',
+        indexStart: i,
+        indexEnd: i + chunk.length - 1
+      });
+    }
+
+    return rows;
+  }
+
   function buildSubtitleBoxStyle({ playerWidth, maxWidthPct }) {
     const safePlayerWidth = Number(playerWidth);
     const safeWidth = Number.isFinite(safePlayerWidth) ? Math.max(0, safePlayerWidth) : 0;
@@ -65,6 +111,8 @@
     buildTranscriptLoadPlan,
     buildSubtitleBoxStyle,
     findActiveGroupedIndex,
+    groupTranscriptSegments,
+    normalizeDisplayGroupSize,
     parseXmlTiming
   };
 });
