@@ -8,20 +8,80 @@
   const DEFAULT_DISPLAY_GROUP_SIZE = 5;
   const MIN_DISPLAY_GROUP_SIZE = 1;
   const MAX_DISPLAY_GROUP_SIZE = 5;
+  const LONG_GAP_THRESHOLD_MS = 5000;
 
   function buildTranscriptLoadPlan() {
     return ['youtubei', 'json3', 'panel'];
   }
 
-  function findActiveGroupedIndex(rows, currentMs) {
+  function hasExplicitEnd(segment) {
+    const startMs = Number(segment?.startMs);
+    const endMs = Number(segment?.endMs);
+    return Boolean(
+      segment?.hasExplicitEndMs === true &&
+      Number.isFinite(startMs) &&
+      Number.isFinite(endMs) &&
+      endMs > startMs
+    );
+  }
+
+  function normalizeGapThreshold(value) {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue) || numericValue < 0) {
+      return LONG_GAP_THRESHOLD_MS;
+    }
+
+    return Math.round(numericValue);
+  }
+
+  function finalizeTranscriptSegments(segments) {
+    const safeSegments = Array.isArray(segments) ? segments : [];
+
+    return safeSegments.map((segment, index) => {
+      const startMs = Math.max(0, Math.round(Number(segment?.startMs) || 0));
+      const next = safeSegments[index + 1];
+      const fallbackEndMs = startMs + 4000;
+      const explicitEndMs = Math.max(0, Math.round(Number(segment?.endMs) || 0));
+      const nextStartMs = Math.max(0, Math.round(Number(next?.startMs) || 0));
+      const explicit = hasExplicitEnd({ ...segment, startMs, endMs: explicitEndMs });
+      const endMs = explicit
+        ? explicitEndMs
+        : Math.max(
+            explicitEndMs,
+            next
+              ? Math.max(nextStartMs, startMs + 800)
+              : fallbackEndMs
+          );
+
+      return {
+        ...segment,
+        startMs,
+        endMs,
+        ...(explicit ? { hasExplicitEndMs: true } : {})
+      };
+    });
+  }
+
+  function findActiveGroupedIndex(rows, currentMs, options = {}) {
     const safeRows = Array.isArray(rows) ? rows : [];
     if (!safeRows.length) return -1;
+    const longGapThresholdMs = normalizeGapThreshold(options.longGapThresholdMs);
 
     for (let i = 0; i < safeRows.length; i += 1) {
       const row = safeRows[i];
       const next = safeRows[i + 1];
-      if (currentMs >= row.startMs && currentMs < row.endMs) return i;
-      if (next && currentMs >= row.startMs && currentMs < next.startMs) return i;
+      const startMs = Number(row?.startMs) || 0;
+      const endMs = Number(row?.endMs) || startMs;
+
+      if (currentMs >= startMs && currentMs < endMs) return i;
+      if (!next || currentMs < endMs) continue;
+
+      const nextStartMs = Number(next?.startMs) || 0;
+      if (currentMs >= endMs && currentMs < nextStartMs) {
+        if (!row?.hasExplicitEndMs) return i;
+        const gapMs = nextStartMs - endMs;
+        return gapMs >= longGapThresholdMs ? -1 : i + 1;
+      }
     }
 
     return -1;
@@ -78,13 +138,15 @@
       if (!chunk.length) continue;
 
       const startMs = Number(chunk[0]?.startMs) || 0;
-      const endMs = Math.max(Number(chunk[chunk.length - 1]?.endMs) || 0, startMs + 1200);
+      const lastSegment = chunk[chunk.length - 1];
+      const endMs = Math.max(Number(lastSegment?.endMs) || 0, startMs + 1200);
       const text = sanitizeTranscriptText(chunk.map((segment) => segment?.text || '').join(' '));
       if (!text) continue;
 
       rows.push({
         startMs,
         endMs,
+        ...(lastSegment?.hasExplicitEndMs ? { hasExplicitEndMs: true } : {}),
         text,
         translatedText: '',
         indexStart: i,
@@ -110,6 +172,7 @@
   return {
     buildTranscriptLoadPlan,
     buildSubtitleBoxStyle,
+    finalizeTranscriptSegments,
     findActiveGroupedIndex,
     groupTranscriptSegments,
     normalizeDisplayGroupSize,

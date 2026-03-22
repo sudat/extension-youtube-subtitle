@@ -32,6 +32,50 @@ test('findActiveGroupedIndex clears subtitle after the final row ends', () => {
   assert.equal(findActiveGroupedIndex(rows, 7100), -1);
 });
 
+
+test('findActiveGroupedIndex returns the next subtitle during a short explicit gap', () => {
+  const rows = [
+    { startMs: 50000, endMs: 55000, hasExplicitEndMs: true },
+    { startMs: 57000, endMs: 61000, hasExplicitEndMs: true }
+  ];
+
+  assert.equal(findActiveGroupedIndex(rows, 56000), 1);
+});
+
+test('findActiveGroupedIndex clears the overlay during a long explicit gap', () => {
+  const rows = [
+    { startMs: 50000, endMs: 55000, hasExplicitEndMs: true },
+    { startMs: 61000, endMs: 65000, hasExplicitEndMs: true }
+  ];
+
+  assert.equal(findActiveGroupedIndex(rows, 58000), -1);
+});
+
+test('findActiveGroupedIndex keeps the previous subtitle when the prior end is inferred', () => {
+  const rows = [
+    { startMs: 50000, endMs: 61000 },
+    { startMs: 61000, endMs: 65000, hasExplicitEndMs: true }
+  ];
+
+  assert.equal(findActiveGroupedIndex(rows, 58000), 0);
+});
+
+test('finalizeTranscriptSegments preserves explicit ends and only infers missing ones', () => {
+  const { finalizeTranscriptSegments } = require('../transcript-sync.js');
+
+  const finalized = finalizeTranscriptSegments([
+    { startMs: 1000, endMs: 2500, hasExplicitEndMs: true, text: 'one' },
+    { startMs: 5000, endMs: 0, text: 'two' },
+    { startMs: 9000, endMs: 0, text: 'three' }
+  ]);
+
+  assert.deepEqual(finalized, [
+    { startMs: 1000, endMs: 2500, hasExplicitEndMs: true, text: 'one' },
+    { startMs: 5000, endMs: 9000, text: 'two' },
+    { startMs: 9000, endMs: 13000, text: 'three' }
+  ]);
+});
+
 test('parseXmlTiming keeps timedtext t/d attributes in milliseconds', () => {
   assert.deepEqual(
     parseXmlTiming({
@@ -115,6 +159,29 @@ test('groupTranscriptSegments groups subtitle rows by the configured size', () =
       translatedText: '',
       indexStart: 3,
       indexEnd: 3
+    }
+  ]);
+});
+
+
+test('groupTranscriptSegments preserves explicit end metadata from the last segment in a group', () => {
+  const grouped = groupTranscriptSegments(
+    [
+      { startMs: 1000, endMs: 2000, hasExplicitEndMs: true, text: 'one' },
+      { startMs: 2000, endMs: 2600, hasExplicitEndMs: true, text: 'two' }
+    ],
+    2
+  );
+
+  assert.deepEqual(grouped, [
+    {
+      startMs: 1000,
+      endMs: 2600,
+      hasExplicitEndMs: true,
+      text: 'one two',
+      translatedText: '',
+      indexStart: 0,
+      indexEnd: 1
     }
   ]);
 });

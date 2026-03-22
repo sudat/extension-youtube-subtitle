@@ -1230,12 +1230,14 @@
       const chunk = segments.slice(i, i + groupSize).filter((x) => sanitizeText(x.text));
       if (!chunk.length) continue;
       const startMs = chunk[0].startMs;
-      const endMs = Math.max(chunk[chunk.length - 1].endMs || 0, startMs + 1200);
+      const lastSegment = chunk[chunk.length - 1];
+      const endMs = Math.max(lastSegment.endMs || 0, startMs + 1200);
       const text = sanitizeText(chunk.map((x) => x.text).join(' '));
       if (!text) continue;
       rows.push({
         startMs,
         endMs,
+        ...(lastSegment?.hasExplicitEndMs ? { hasExplicitEndMs: true } : {}),
         text,
         translatedText: '',
         indexStart: i,
@@ -1280,16 +1282,27 @@
   }
 
   function fillSegmentEndTimes(rows) {
+    if (syncHelpers?.finalizeTranscriptSegments) {
+      return syncHelpers.finalizeTranscriptSegments(rows);
+    }
+
     return rows.map((row, idx) => {
+      const startMs = Math.max(0, Math.round(Number(row?.startMs) || 0));
       const next = rows[idx + 1];
-      const fallbackEnd = row.startMs + 4000;
-      const endMs = Math.max(
-        row.endMs || 0,
-        next ? Math.max(next.startMs, row.startMs + 800) : fallbackEnd
-      );
+      const fallbackEnd = startMs + 4000;
+      const explicitEndMs = Math.max(0, Math.round(Number(row?.endMs) || 0));
+      const hasExplicitEndMs = Boolean(row?.hasExplicitEndMs && explicitEndMs > startMs);
+      const endMs = hasExplicitEndMs
+        ? explicitEndMs
+        : Math.max(
+            explicitEndMs,
+            next ? Math.max(Number(next?.startMs) || 0, startMs + 800) : fallbackEnd
+          );
       return {
         ...row,
-        endMs
+        startMs,
+        endMs,
+        ...(hasExplicitEndMs ? { hasExplicitEndMs: true } : {})
       };
     });
   }
@@ -1745,6 +1758,7 @@
       rows.push({
         startMs,
         endMs: startMs + Math.max(durationMs, 1000),
+        ...(durationMs > 0 ? { hasExplicitEndMs: true } : {}),
         text
       });
     }
@@ -1845,6 +1859,7 @@
       rows.push({
         startMs,
         endMs: Math.max(endMs, startMs + 1000),
+        ...(endMs > startMs ? { hasExplicitEndMs: true } : {}),
         text
       });
     }
@@ -1994,6 +2009,7 @@
       rows.push({
         startMs,
         endMs: Math.max(0, Math.round(startMs + Math.max(durationMs, 1000))),
+        ...(durationMs > 0 ? { hasExplicitEndMs: true } : {}),
         text: clean
       });
     }
@@ -2030,6 +2046,7 @@
       rows.push({
         startMs,
         endMs: endMs != null ? Math.max(endMs, startMs + 1000) : startMs + 2000,
+        ...(endMs != null ? { hasExplicitEndMs: true } : {}),
         text: clean
       });
     }
@@ -2258,8 +2275,15 @@
     for (let i = 0; i < rows.length; i += 1) {
       const row = rows[i];
       const next = rows[i + 1];
-      if (currentMs >= row.startMs && currentMs < row.endMs) return i;
-      if (next && currentMs >= row.startMs && currentMs < next.startMs) return i;
+      const startMs = Number(row?.startMs) || 0;
+      const endMs = Number(row?.endMs) || startMs;
+      if (currentMs >= startMs && currentMs < endMs) return i;
+      if (!next || currentMs < endMs) continue;
+      const nextStartMs = Number(next?.startMs) || 0;
+      if (currentMs >= endMs && currentMs < nextStartMs) {
+        if (!row?.hasExplicitEndMs) return i;
+        return nextStartMs - endMs >= 5000 ? -1 : i + 1;
+      }
     }
     return -1;
   }
