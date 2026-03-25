@@ -169,6 +169,14 @@
     };
   }
 
+  function resolveSubtitleOverlayUiState({ subtitleVisible = true, subtitleText = '' } = {}) {
+    return {
+      renderedSubtitleText: subtitleVisible ? sanitizeTranscriptText(subtitleText) : '',
+      toggleMode: subtitleVisible ? 'visible' : 'hidden',
+      toggleLabel: subtitleVisible ? '字幕を非表示' : '字幕を表示'
+    };
+  }
+
   return {
     buildTranscriptLoadPlan,
     buildSubtitleBoxStyle,
@@ -176,6 +184,7 @@
     findActiveGroupedIndex,
     groupTranscriptSegments,
     normalizeDisplayGroupSize,
-    parseXmlTiming
+    parseXmlTiming,
+    resolveSubtitleOverlayUiState
   };
 });

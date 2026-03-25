@@ -41,6 +41,7 @@
     activeIndex: -1,
     activeText: '',
     settings: { ...DEFAULT_SETTINGS },
+    subtitleVisible: true,
     ui: null,
     syncTimer: null,
     navTimer: null,
@@ -292,6 +293,53 @@
       state.copyUi.message = '';
       renderCopyButton();
     }, COPY_FEEDBACK_MS);
+  }
+
+  function resolveSubtitleOverlayUiState(subtitleVisible = state.subtitleVisible, subtitleText = '') {
+    if (syncHelpers?.resolveSubtitleOverlayUiState) {
+      return syncHelpers.resolveSubtitleOverlayUiState({
+        subtitleVisible,
+        subtitleText
+      });
+    }
+
+    return {
+      renderedSubtitleText: subtitleVisible ? sanitizeText(subtitleText) : '',
+      toggleMode: subtitleVisible ? 'visible' : 'hidden',
+      toggleLabel: subtitleVisible ? '字幕を非表示' : '字幕を表示'
+    };
+  }
+
+  function getSubtitleToggleIcon(mode = 'visible') {
+    if (mode === 'hidden') {
+      return `
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M3 3l18 18" />
+          <path d="M10.6 6.3A9.7 9.7 0 0 1 12 6c5.5 0 9.5 6 9.5 6a18 18 0 0 1-4.1 4.7" />
+          <path d="M14.1 14.3A3 3 0 0 1 9.7 9.9" />
+          <path d="M6.3 6.8A18 18 0 0 0 2.5 12S6.5 18 12 18c1.5 0 2.9-.4 4.1-1" />
+        </svg>
+      `;
+    }
+
+    return `
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M2.5 12S6.5 6 12 6s9.5 6 9.5 6-4 6-9.5 6S2.5 12 2.5 12Z" />
+        <circle cx="12" cy="12" r="3" />
+      </svg>
+    `;
+  }
+
+  function renderSubtitleVisibilityToggle() {
+    const ui = state.ui;
+    if (!ui?.subtitleToggle) return;
+
+    const toggleState = resolveSubtitleOverlayUiState(state.subtitleVisible, state.activeText);
+    ui.subtitleToggle.dataset.mode = toggleState.toggleMode;
+    ui.subtitleToggle.setAttribute('aria-label', toggleState.toggleLabel);
+    ui.subtitleToggle.setAttribute('aria-pressed', state.subtitleVisible ? 'true' : 'false');
+    ui.subtitleToggle.title = toggleState.toggleLabel;
+    ui.subtitleToggle.innerHTML = getSubtitleToggleIcon(toggleState.toggleMode);
   }
 
   function getTranslationProviderMeta(provider = GEMINI_PROVIDER) {
@@ -589,6 +637,39 @@
         #${ROOT_ID} .yto-gear:hover {
           background: rgba(15, 15, 15, 0.9);
         }
+        #${ROOT_ID} .yto-subtitle-toggle {
+          position: absolute;
+          right: 54px;
+          top: 12px;
+          width: 34px;
+          height: 34px;
+          border: 0;
+          border-radius: 999px;
+          background: rgba(15, 15, 15, 0.72);
+          color: #fff;
+          cursor: pointer;
+          pointer-events: auto;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0;
+        }
+        #${ROOT_ID} .yto-subtitle-toggle:hover {
+          background: rgba(15, 15, 15, 0.9);
+        }
+        #${ROOT_ID} .yto-subtitle-toggle svg {
+          width: 18px;
+          height: 18px;
+          stroke: currentColor;
+          fill: none;
+          stroke-width: 1.8;
+          stroke-linecap: round;
+          stroke-linejoin: round;
+          pointer-events: none;
+        }
+        #${ROOT_ID} .yto-subtitle-toggle[data-mode="hidden"] {
+          color: rgba(255,255,255,0.82);
+        }
         #${ROOT_ID} .yto-copy {
           position: absolute;
           right: 14px;
@@ -766,6 +847,7 @@
         <button class="yto-status-icon" type="button" aria-label="Status">i</button>
         <div class="yto-status"></div>
       </div>
+      <button class="yto-subtitle-toggle" type="button" aria-label="字幕を非表示" aria-pressed="true" title="字幕を非表示"></button>
       <button class="yto-gear" type="button" title="字幕設定">⚙</button>
       <button class="yto-copy" type="button" aria-label="元字幕全文をコピー" title="元字幕全文をコピー">⎘</button>
       <div class="yto-panel">
@@ -839,6 +921,7 @@
       statusShell: root.querySelector('.yto-status-shell'),
       statusIcon: root.querySelector('.yto-status-icon'),
       statusBubble: root.querySelector('.yto-status'),
+      subtitleToggle: root.querySelector('.yto-subtitle-toggle'),
       gear: root.querySelector('.yto-gear'),
       copyButton: root.querySelector('.yto-copy'),
       panel: root.querySelector('.yto-panel'),
@@ -865,6 +948,7 @@
     applySettingsToUi();
     renderStatus();
     renderCopyButton();
+    renderSubtitleVisibilityToggle();
     return ui;
   }
 
@@ -901,6 +985,7 @@
     }
     renderStatus();
     renderCopyButton();
+    renderSubtitleVisibilityToggle();
   }
 
   function setTranslationSectionExpanded(expanded) {
@@ -1001,6 +1086,14 @@
   }
 
   function bindUi(ui) {
+    ui.subtitleToggle.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      state.subtitleVisible = !state.subtitleVisible;
+      renderSubtitleVisibilityToggle();
+      setSubtitleText(state.activeText);
+    });
+
     ui.gear.addEventListener('click', () => {
       ui.panel.classList.toggle('is-open');
     });
@@ -1214,7 +1307,8 @@
   function setSubtitleText(text) {
     const ui = ensureUi();
     if (!ui) return;
-    const value = sanitizeText(text);
+    const overlayState = resolveSubtitleOverlayUiState(state.subtitleVisible, text);
+    const value = overlayState.renderedSubtitleText;
     ui.subtitle.innerHTML = value ? escapeHtml(value) : '';
     ui.subtitle.classList.toggle('is-empty', !value);
   }
@@ -2326,8 +2420,10 @@
 
   async function refreshTranscript(force = false) {
     const videoId = getVideoIdFromUrl(location.href);
+    const videoChanged = state.videoId !== videoId;
     if (!isWatchLikeUrl(location.href) || !videoId) {
       state.videoId = null;
+      state.subtitleVisible = true;
       state.rawSegments = [];
       state.groupedSegments = [];
       state.activeIndex = -1;
@@ -2343,10 +2439,16 @@
         translationText: '',
         translationError: false
       });
+      renderSubtitleVisibilityToggle();
       return;
     }
 
     if (!force && state.videoId === videoId && state.groupedSegments.length) return;
+
+    if (videoChanged) {
+      state.subtitleVisible = true;
+      renderSubtitleVisibilityToggle();
+    }
 
     const requestId = ++state.transcriptRequestId;
     state.videoId = videoId;

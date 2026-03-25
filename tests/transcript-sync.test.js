@@ -6,6 +6,7 @@ const {
   buildSubtitleBoxStyle,
   findActiveGroupedIndex,
   groupTranscriptSegments,
+  resolveSubtitleOverlayUiState,
   normalizeDisplayGroupSize,
   parseXmlTiming
 } = require('../transcript-sync.js');
@@ -116,6 +117,34 @@ test('buildSubtitleBoxStyle clamps invalid values to the player width bounds', (
     {
       width: 'max-content',
       maxWidth: '800px'
+    }
+  );
+});
+
+test('resolveSubtitleOverlayUiState keeps subtitle text and hide action while subtitles are visible', () => {
+  assert.deepEqual(
+    resolveSubtitleOverlayUiState({
+      subtitleVisible: true,
+      subtitleText: ' Hello   world '
+    }),
+    {
+      renderedSubtitleText: 'Hello world',
+      toggleMode: 'visible',
+      toggleLabel: '字幕を非表示'
+    }
+  );
+});
+
+test('resolveSubtitleOverlayUiState clears subtitle text and flips the toggle label when subtitles are hidden', () => {
+  assert.deepEqual(
+    resolveSubtitleOverlayUiState({
+      subtitleVisible: false,
+      subtitleText: '字幕テキスト'
+    }),
+    {
+      renderedSubtitleText: '',
+      toggleMode: 'hidden',
+      toggleLabel: '字幕を表示'
     }
   );
 });
