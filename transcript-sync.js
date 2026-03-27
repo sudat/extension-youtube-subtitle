@@ -11,7 +11,7 @@
   const LONG_GAP_THRESHOLD_MS = 5000;
 
   function buildTranscriptLoadPlan() {
-    return ['youtubei', 'json3', 'panel'];
+    return ['youtubei', 'json3'];
   }
 
   function hasExplicitEnd(segment) {

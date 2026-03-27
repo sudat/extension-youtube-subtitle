@@ -403,19 +403,6 @@
     state.formDraft.translationModel = config.model;
   }
 
-  function parseTimestampText(text) {
-    const cleaned = String(text || '').trim();
-    if (!cleaned) return null;
-    const match = cleaned.match(/(\d{1,2}:)?\d{1,2}:\d{2}/);
-    if (!match) return null;
-    const parts = match[0].split(':').map((x) => Number(x));
-    if (parts.some(Number.isNaN)) return null;
-    let sec = 0;
-    if (parts.length === 3) sec = parts[0] * 3600 + parts[1] * 60 + parts[2];
-    if (parts.length === 2) sec = parts[0] * 60 + parts[1];
-    return sec * 1000;
-  }
-
   function textFromName(name) {
     if (!name) return '';
     if (typeof name.simpleText === 'string') return name.simpleText;
@@ -1345,7 +1332,7 @@
     if (syncHelpers?.buildTranscriptLoadPlan) {
       return syncHelpers.buildTranscriptLoadPlan();
     }
-    return ['youtubei', 'json3', 'panel'];
+    return ['youtubei', 'json3'];
   }
 
   function parseXmlTiming(node) {
@@ -1691,153 +1678,6 @@
     windowMeta.status = 'done';
     windowMeta.message = '';
     state.translation.completedCount += 1;
-  }
-
-  function parseTranscriptPanelRows() {
-    const panel = document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]');
-    if (!panel) return [];
-    const rows = Array.from(panel.querySelectorAll('ytd-transcript-segment-renderer'));
-    if (!rows.length) return [];
-
-    const parsed = rows.map((row) => {
-      const timeEl = row.querySelector('.segment-timestamp, [class*="timestamp"]');
-      const textEl = row.querySelector('yt-formatted-string.segment-text, .segment-text');
-      const startMs = parseTimestampText(timeEl?.textContent || '');
-      let text = sanitizeText(textEl?.textContent || '');
-
-      if (!text) {
-        const clone = row.cloneNode(true);
-        clone.querySelectorAll('.segment-timestamp, [class*="timestamp"], button, tp-yt-paper-button').forEach((el) => el.remove());
-        text = sanitizeText(clone.textContent || '');
-      }
-
-      return startMs == null || !text ? null : { startMs, endMs: 0, text };
-    }).filter(Boolean);
-
-    return fillSegmentEndTimes(parsed);
-  }
-
-  function panelHasRows() {
-    return parseTranscriptPanelRows().length > 0;
-  }
-
-  async function waitForTranscriptRows(timeoutMs = 8000) {
-    const startedAt = Date.now();
-    let transcriptTabClicked = false;
-
-    while (Date.now() - startedAt < timeoutMs) {
-      if (panelHasRows()) return true;
-
-      const panel = document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]');
-      if (panel && !transcriptTabClicked) {
-        const transcriptTab = findVisibleElement('button,[role="tab"],[role="button"]', (el) => {
-          const label = `${el.getAttribute('aria-label') || ''} ${el.textContent || ''}`.trim().toLowerCase();
-          return label.includes('transcript') || label.includes('文字起こし');
-        });
-        if (transcriptTab) {
-          transcriptTab.click();
-          transcriptTabClicked = true;
-        }
-      }
-
-      await sleep(250);
-    }
-
-    return panelHasRows();
-  }
-
-  function isElementVisible(el) {
-    if (!el) return false;
-    const style = getComputedStyle(el);
-    return style.display !== 'none' && style.visibility !== 'hidden' && !el.hasAttribute('hidden') && (el.offsetWidth > 0 || el.offsetHeight > 0 || el.getClientRects().length > 0);
-  }
-
-  function findVisibleElement(selectors, predicate) {
-    return Array.from(document.querySelectorAll(selectors))
-      .filter((el) => !el.closest(`#${ROOT_ID}`))
-      .find((el) => isElementVisible(el) && predicate(el));
-  }
-
-  async function clickVisible(el) {
-    if (!el) return false;
-    el.scrollIntoView?.({ block: 'center', inline: 'center' });
-    await sleep(80);
-    el.click();
-    return true;
-  }
-
-  async function maybeOpenTranscriptPanel() {
-    if (panelHasRows()) return true;
-
-    const existingPanel = document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]');
-    if (existingPanel && isElementVisible(existingPanel)) {
-      if (await waitForTranscriptRows()) return true;
-    }
-
-    const transcriptTexts = ['show transcript', 'transcript', '文字起こしを表示', '文字起こし'];
-    const isTranscriptText = (text) => {
-      const normalized = String(text || '').trim().toLowerCase();
-      return transcriptTexts.some((needle) => normalized.includes(needle));
-    };
-
-    const clickableSelectors = [
-      'button',
-      '[role="button"]',
-      'ytd-menu-service-item-renderer',
-      'tp-yt-paper-item',
-      'yt-formatted-string'
-    ];
-
-    const directCandidate = findVisibleElement(clickableSelectors.join(','), (el) => {
-      return isTranscriptText(el.textContent || el.getAttribute('aria-label') || el.getAttribute('title') || '');
-    });
-
-    if (directCandidate) {
-      await clickVisible(directCandidate);
-      if (await waitForTranscriptRows()) return true;
-    }
-
-    const expandTexts = ['...more', 'show more', 'さらに表示'];
-    const expandButton = findVisibleElement('button,[role="button"]', (el) => {
-      const text = String(el.textContent || '').trim().toLowerCase();
-      const aria = String(el.getAttribute('aria-label') || '').trim().toLowerCase();
-      const title = String(el.getAttribute('title') || '').trim().toLowerCase();
-      const joined = [text, aria, title].filter(Boolean).join(' ');
-      if (joined.includes('more actions') || joined.includes('その他の操作')) return false;
-      return expandTexts.some((needle) => text === needle || aria === needle || title === needle);
-    });
-
-    if (expandButton) {
-      await clickVisible(expandButton);
-      await sleep(500);
-      const transcriptAfterExpand = findVisibleElement(clickableSelectors.join(','), (el) => {
-        return isTranscriptText(el.textContent || el.getAttribute('aria-label') || el.getAttribute('title') || '');
-      });
-      if (transcriptAfterExpand) {
-        await clickVisible(transcriptAfterExpand);
-        if (await waitForTranscriptRows()) return true;
-      }
-    }
-
-    const moreTexts = ['more actions', 'その他の操作', '操作', 'その他'];
-    const moreButton = findVisibleElement('button, [role="button"]', (el) => {
-      const label = `${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''} ${el.textContent || ''}`.toLowerCase();
-      return moreTexts.some((needle) => label.includes(needle));
-    });
-
-    if (moreButton) {
-      await clickVisible(moreButton);
-      await sleep(500);
-      const menuItem = findVisibleElement('ytd-menu-service-item-renderer,tp-yt-paper-item,button,[role="menuitem"],[role="button"]', (el) => {
-        return isTranscriptText(el.textContent || el.getAttribute('aria-label') || '');
-      });
-      if (menuItem) {
-        await clickVisible(menuItem);
-        if (await waitForTranscriptRows()) return true;
-      }
-    }
-
-    return panelHasRows();
   }
 
   function parseJson3Transcript(payload) {
@@ -2325,28 +2165,6 @@
           return null;
         }
       },
-      panel: async () => {
-        try {
-          const opened = await maybeOpenTranscriptPanel();
-          if (opened) {
-            const panelRows = parseTranscriptPanelRows();
-            if (panelRows.length) {
-              return {
-                segments: panelRows,
-                trackLabel: 'Transcript panel',
-                transcriptMeta: await inferTranscriptMeta()
-              };
-            }
-            reasons.push('Transcript panel は開いたが行を取得できませんでした。');
-            return null;
-          }
-          reasons.push('Transcript panel を開けませんでした。');
-          return null;
-        } catch (error) {
-          reasons.push(error?.message || 'Transcript panel の取得に失敗しました。');
-          return null;
-        }
-      }
     };
 
     for (const source of buildTranscriptLoadPlan()) {

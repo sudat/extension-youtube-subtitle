@@ -49,7 +49,6 @@ YouTube の文字起こしを動画上へオーバーレイ表示しつつ、Gem
 
 1. `content.js` が現在の動画 ID を検出します。
 2. 字幕取得を以下の優先順で試します。
-   - Transcript panel の DOM
    - `youtubei/v1/get_transcript`
    - `playerResponse.captionTracks`
    - `ANDROID` / `IOS` client の `youtubei/v1/player`
@@ -65,14 +64,13 @@ YouTube の文字起こしを動画上へオーバーレイ表示しつつ、Gem
 
 YouTube の字幕取得は動画ごとに挙動が異なるため、単一経路に依存しません。
 
-- Transcript panel が開けて行が取得できる場合は DOM を使います。
 - `get_transcript` が有効な場合は API 応答を使います。
 - `WEB` client の `captionTracks` が空本文になる動画があるため、必要時は `ANDROID` と `IOS` の `player` endpoint から字幕トラックを取り直します。
 
 ### 3.2 採用理由
 
-- DOM はもっとも人間の見える結果に近いです。
-- API は速いですが壊れやすいため補助経路に置いています。
+- `KISS`: YouTube UI を直接操作する panel fallback は、画面フォーカス移動など副作用のわりに成果がなかったため廃止しました。
+- API は UI 操作より副作用が少なく、拡張側で完結できます。
 - モバイル client fallback は、`WEB` では空でも字幕本文を返す動画があるため採用しています。
 
 ## 4. 翻訳設計

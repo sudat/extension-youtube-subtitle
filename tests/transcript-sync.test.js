@@ -11,8 +11,8 @@ const {
   parseXmlTiming
 } = require('../transcript-sync.js');
 
-test('buildTranscriptLoadPlan prefers API sources before transcript panel', () => {
-  assert.deepEqual(buildTranscriptLoadPlan(), ['youtubei', 'json3', 'panel']);
+test('buildTranscriptLoadPlan uses only API-based transcript sources', () => {
+  assert.deepEqual(buildTranscriptLoadPlan(), ['youtubei', 'json3']);
 });
 
 test('findActiveGroupedIndex returns matching subtitle while within a row range', () => {
