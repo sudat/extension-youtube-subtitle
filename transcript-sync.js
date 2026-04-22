@@ -8,6 +8,9 @@
   const DEFAULT_DISPLAY_GROUP_SIZE = 5;
   const MIN_DISPLAY_GROUP_SIZE = 1;
   const MAX_DISPLAY_GROUP_SIZE = 5;
+  const DEFAULT_DISPLAY_OFFSET_MS = 0;
+  const MIN_DISPLAY_OFFSET_MS = -3000;
+  const MAX_DISPLAY_OFFSET_MS = 3000;
   const LONG_GAP_THRESHOLD_MS = 5000;
 
   function buildTranscriptLoadPlan() {
@@ -113,6 +116,15 @@
     return Math.min(max, Math.max(min, value));
   }
 
+  function normalizeDisplayOffsetMs(value) {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) {
+      return DEFAULT_DISPLAY_OFFSET_MS;
+    }
+
+    return clamp(Math.round(numericValue), MIN_DISPLAY_OFFSET_MS, MAX_DISPLAY_OFFSET_MS);
+  }
+
   function normalizeDisplayGroupSize(value) {
     const numericValue = Number(value);
     if (!Number.isFinite(numericValue) || numericValue < MIN_DISPLAY_GROUP_SIZE) {
@@ -184,6 +196,7 @@
     findActiveGroupedIndex,
     groupTranscriptSegments,
     normalizeDisplayGroupSize,
+    normalizeDisplayOffsetMs,
     parseXmlTiming,
     resolveSubtitleOverlayUiState
   };

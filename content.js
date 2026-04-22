@@ -7,6 +7,7 @@
   const DISPLAY_GROUP_SIZE = 5;
   const MIN_DISPLAY_GROUP_SIZE = 1;
   const MAX_DISPLAY_GROUP_SIZE = 5;
+  const DISPLAY_OFFSET_MS = 0;
   const TRANSLATION_WINDOW_SIZE = 3;
   const COPY_FEEDBACK_MS = 1800;
   const GEMINI_PROVIDER = 'gemini';
@@ -22,6 +23,7 @@
     xPct: 50,
     yPct: 84,
     displayGroupSize: DISPLAY_GROUP_SIZE,
+    displayOffsetMs: DISPLAY_OFFSET_MS,
     showStatus: true,
     translationEnabled: false,
     translationProvider: GEMINI_PROVIDER,
@@ -141,6 +143,13 @@
         await chrome.storage.local.set({ displayGroupSize: normalizedDisplayGroupSize });
       } catch {}
     }
+    const normalizedDisplayOffsetMs = getDisplayOffsetMs(state.settings.displayOffsetMs);
+    if (state.settings.displayOffsetMs !== normalizedDisplayOffsetMs) {
+      state.settings.displayOffsetMs = normalizedDisplayOffsetMs;
+      try {
+        await chrome.storage.local.set({ displayOffsetMs: normalizedDisplayOffsetMs });
+      } catch {}
+    }
     if (!state.settings.translationProvider) {
       state.settings.translationProvider = GEMINI_PROVIDER;
     }
@@ -207,6 +216,26 @@
     }
 
     return clamp(Math.round(numericValue), MIN_DISPLAY_GROUP_SIZE, MAX_DISPLAY_GROUP_SIZE);
+  }
+
+  function getDisplayOffsetMs(value = state.settings.displayOffsetMs) {
+    if (syncHelpers?.normalizeDisplayOffsetMs) {
+      return syncHelpers.normalizeDisplayOffsetMs(value);
+    }
+
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) {
+      return DISPLAY_OFFSET_MS;
+    }
+
+    return clamp(Math.round(numericValue), -3000, 3000);
+  }
+
+  function formatDisplayOffsetLabel(value = state.settings.displayOffsetMs) {
+    const offsetMs = getDisplayOffsetMs(value);
+    if (offsetMs > 0) return `+${offsetMs} ms`;
+    if (offsetMs < 0) return `${offsetMs} ms`;
+    return '0 ms';
   }
 
   function buildTranslationQueueNote() {
@@ -754,6 +783,32 @@
           background: rgba(255,255,255,0.08);
           color: #fff;
         }
+        #${ROOT_ID} .yto-offset-control {
+          display: grid;
+          grid-template-columns: 40px minmax(0, 1fr) 40px;
+          gap: 8px;
+          align-items: center;
+        }
+        #${ROOT_ID} .yto-offset-button {
+          height: 38px;
+          padding: 0;
+          font-size: 16px;
+          font-weight: 700;
+        }
+        #${ROOT_ID} .yto-offset-value {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 38px;
+          border: 1px solid rgba(255,255,255,0.18);
+          border-radius: 10px;
+          background: rgba(255,255,255,0.08);
+          color: #fff;
+          font-variant-numeric: tabular-nums;
+          font-size: 13px;
+          font-weight: 600;
+          user-select: none;
+        }
         #${ROOT_ID} .yto-panel select option {
           color: #111;
         }
@@ -860,7 +915,14 @@
             <option value="5">5 行</option>
           </select>
         </label>
-        <div class="yto-note">1ブロックにまとめる元字幕行数です。変更すると表示中の字幕と翻訳キューを再計算します。</div>
+        <label class="yto-row">
+          <span class="yto-row-title">オフセット</span>
+          <div class="yto-offset-control">
+            <button class="yto-offset-button yto-offset-decrease" type="button" aria-label="オフセットを小さくする">＜</button>
+            <div class="yto-offset-value" aria-live="polite">0 ms</div>
+            <button class="yto-offset-button yto-offset-increase" type="button" aria-label="オフセットを大きくする">＞</button>
+          </div>
+        </label>
         <div class="yto-divider"></div>
         <div class="yto-row">
           <button class="yto-section-toggle yto-translation-toggle" type="button" data-expanded="0">翻訳設定</button>
@@ -917,6 +979,9 @@
       bg: root.querySelector('.yto-bg'),
       width: root.querySelector('.yto-width'),
       displayGroupSize: root.querySelector('.yto-display-group-size'),
+      displayOffsetValue: root.querySelector('.yto-offset-value'),
+      displayOffsetDecrease: root.querySelector('.yto-offset-decrease'),
+      displayOffsetIncrease: root.querySelector('.yto-offset-increase'),
       translationToggle: root.querySelector('.yto-translation-toggle'),
       translationSection: root.querySelector('.yto-translation-section'),
       translationEnabled: root.querySelector('.yto-translation-enabled'),
@@ -957,6 +1022,7 @@
     ui.bg.value = String(state.settings.bgOpacity);
     ui.width.value = String(state.settings.maxWidthPct);
     ui.displayGroupSize.value = String(getDisplayGroupSize());
+    ui.displayOffsetValue.textContent = formatDisplayOffsetLabel();
     ui.translationEnabled.checked = Boolean(state.settings.translationEnabled);
     ui.provider.value = provider;
     ui.apiKeyLabel.textContent = providerMeta.apiKeyLabel;
@@ -1072,6 +1138,17 @@
     queueTranslationRestart();
   }
 
+  async function updateDisplayOffset(nextValue) {
+    const displayOffsetMs = getDisplayOffsetMs(nextValue);
+    await persistSettings({ displayOffsetMs });
+    applySettingsToUi();
+    syncSubtitle();
+  }
+
+  function swallowPanelEvent(event) {
+    event.stopPropagation();
+  }
+
   function bindUi(ui) {
     ui.subtitleToggle.addEventListener('click', (event) => {
       event.preventDefault();
@@ -1081,8 +1158,19 @@
       setSubtitleText(state.activeText);
     });
 
-    ui.gear.addEventListener('click', () => {
+    ui.gear.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
       ui.panel.classList.toggle('is-open');
+    });
+
+    ['click', 'dblclick', 'mousedown', 'mouseup', 'pointerdown', 'pointerup', 'touchstart', 'touchend'].forEach((eventName) => {
+      ui.panel.addEventListener(eventName, swallowPanelEvent);
+    });
+    ['keydown', 'keyup', 'keypress', 'wheel'].forEach((eventName) => {
+      ui.panel.addEventListener(eventName, (event) => {
+        event.stopPropagation();
+      });
     });
 
     ui.translationToggle.addEventListener('click', () => {
@@ -1118,6 +1206,16 @@
       }
 
       queueTranslationRestart();
+    });
+    ui.displayOffsetDecrease.addEventListener('click', async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      await updateDisplayOffset(state.settings.displayOffsetMs - 100);
+    });
+    ui.displayOffsetIncrease.addEventListener('click', async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      await updateDisplayOffset(state.settings.displayOffsetMs + 100);
     });
     ui.translationEnabled.addEventListener('change', async () => {
       await persistSettings({ translationEnabled: ui.translationEnabled.checked });
@@ -2227,7 +2325,7 @@
     const video = getVideoEl();
     if (!video) return;
     const currentMs = Math.floor(video.currentTime * 1000);
-    const nextIndex = findActiveIndex(currentMs);
+    const nextIndex = findActiveIndex(currentMs + getDisplayOffsetMs());
     const text = nextIndex >= 0 ? getDisplayText(state.groupedSegments[nextIndex]) : '';
     if (nextIndex === state.activeIndex && text === state.activeText) return;
     state.activeIndex = nextIndex;

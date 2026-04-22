@@ -8,6 +8,7 @@ const {
   groupTranscriptSegments,
   resolveSubtitleOverlayUiState,
   normalizeDisplayGroupSize,
+  normalizeDisplayOffsetMs,
   parseXmlTiming
 } = require('../transcript-sync.js');
 
@@ -159,6 +160,17 @@ test('normalizeDisplayGroupSize clamps configured group sizes into the supported
   assert.equal(normalizeDisplayGroupSize(3), 3);
   assert.equal(normalizeDisplayGroupSize(6), 5);
   assert.equal(normalizeDisplayGroupSize(99), 5);
+});
+
+test('normalizeDisplayOffsetMs falls back to zero when the input is invalid', () => {
+  assert.equal(normalizeDisplayOffsetMs(undefined), 0);
+  assert.equal(normalizeDisplayOffsetMs('abc'), 0);
+});
+
+test('normalizeDisplayOffsetMs clamps configured offsets into the supported range', () => {
+  assert.equal(normalizeDisplayOffsetMs(-4500), -3000);
+  assert.equal(normalizeDisplayOffsetMs(650), 650);
+  assert.equal(normalizeDisplayOffsetMs(9999), 3000);
 });
 
 test('groupTranscriptSegments groups subtitle rows by the configured size', () => {
