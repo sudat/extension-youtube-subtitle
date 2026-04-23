@@ -12,6 +12,9 @@
   const MIN_DISPLAY_OFFSET_MS = -3000;
   const MAX_DISPLAY_OFFSET_MS = 3000;
   const LONG_GAP_THRESHOLD_MS = 5000;
+  const BRACKET_ONLY_CUE_PATTERN = /^(?:\[[^\]]+\]\s*)+$/;
+  const INLINE_CUE_PATTERN = /\[(music|applause|laughter)\]/gi;
+  const SPEAKER_PREFIX_PATTERN = /(^|\s)>>\s*/g;
 
   function buildTranscriptLoadPlan() {
     return ['youtubei', 'json3'];
@@ -136,6 +139,13 @@
 
   function sanitizeTranscriptText(text) {
     return String(text || '')
+      .split(/\r?\n+/)
+      .map((line) => line.trim())
+      .filter((line) => line && !BRACKET_ONLY_CUE_PATTERN.test(line))
+      .map((line) => line.replace(SPEAKER_PREFIX_PATTERN, '').trim())
+      .map((line) => line.replace(INLINE_CUE_PATTERN, ' ').trim())
+      .filter(Boolean)
+      .join(' ')
       .replace(/\s+/g, ' ')
       .trim();
   }

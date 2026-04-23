@@ -30,3 +30,41 @@ test('buildPlainTranscriptText returns empty when transcript is empty', () => {
 
   assert.equal(text, '');
 });
+
+test('buildPlainTranscriptText drops bracket-only cues', () => {
+  const text = buildPlainTranscriptText([
+    { text: '[music]' },
+    { text: ' hello ' },
+    { text: '[applause] [laughter]' },
+    { text: 'world' }
+  ]);
+
+  assert.equal(text, `${SUMMARY_PROMPT_PREFIX} hello world`);
+});
+
+test('buildPlainTranscriptText keeps inline bracket text that belongs to dialogue', () => {
+  const text = buildPlainTranscriptText([
+    { text: 'I said [really] no' }
+  ]);
+
+  assert.equal(text, `${SUMMARY_PROMPT_PREFIX} I said [really] no`);
+});
+
+test('buildPlainTranscriptText strips speaker prefixes and drops prefix-only cues', () => {
+  const text = buildPlainTranscriptText([
+    { text: '>>' },
+    { text: '>> hello there' }
+  ]);
+
+  assert.equal(text, `${SUMMARY_PROMPT_PREFIX} hello there`);
+});
+
+test('buildPlainTranscriptText removes inline music cues while keeping dialogue', () => {
+  const text = buildPlainTranscriptText([
+    { text: 'every time with its skill. [music]' },
+    { text: '>> [music]' },
+    { text: '>> to recommend next steps' }
+  ]);
+
+  assert.equal(text, `${SUMMARY_PROMPT_PREFIX} every time with its skill. to recommend next steps`);
+});

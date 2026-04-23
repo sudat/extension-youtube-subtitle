@@ -226,3 +226,88 @@ test('groupTranscriptSegments preserves explicit end metadata from the last segm
     }
   ]);
 });
+
+test('groupTranscriptSegments drops bracket-only cues from grouped subtitle text', () => {
+  const grouped = groupTranscriptSegments(
+    [
+      { startMs: 1000, endMs: 2000, text: '[music]' },
+      { startMs: 2000, endMs: 3000, text: 'hello' },
+      { startMs: 3000, endMs: 4000, text: '[applause] [laughter]' }
+    ],
+    3
+  );
+
+  assert.deepEqual(grouped, [
+    {
+      startMs: 2000,
+      endMs: 3200,
+      text: 'hello',
+      translatedText: '',
+      indexStart: 0,
+      indexEnd: 0
+    }
+  ]);
+});
+
+test('groupTranscriptSegments keeps inline bracket text that is part of dialogue', () => {
+  const grouped = groupTranscriptSegments(
+    [
+      { startMs: 1000, endMs: 2000, text: 'I said [really] no' }
+    ],
+    1
+  );
+
+  assert.deepEqual(grouped, [
+    {
+      startMs: 1000,
+      endMs: 2200,
+      text: 'I said [really] no',
+      translatedText: '',
+      indexStart: 0,
+      indexEnd: 0
+    }
+  ]);
+});
+
+test('groupTranscriptSegments strips speaker prefixes and drops prefix-only cues', () => {
+  const grouped = groupTranscriptSegments(
+    [
+      { startMs: 1000, endMs: 2000, text: '>>' },
+      { startMs: 2000, endMs: 3000, text: '>> hello there' }
+    ],
+    2
+  );
+
+  assert.deepEqual(grouped, [
+    {
+      startMs: 2000,
+      endMs: 3200,
+      text: 'hello there',
+      translatedText: '',
+      indexStart: 0,
+      indexEnd: 0
+    }
+  ]);
+});
+
+test('groupTranscriptSegments removes inline music cues while keeping dialogue', () => {
+  const grouped = groupTranscriptSegments(
+    [
+      { startMs: 1000, endMs: 2000, text: 'every time with its skill. [music]' },
+      { startMs: 2000, endMs: 3000, text: '>> [music]' },
+      { startMs: 3000, endMs: 4000, text: '>> to recommend next steps' }
+    ],
+    3
+  );
+
+  assert.deepEqual(grouped, [
+    {
+      startMs: 1000,
+      endMs: 4000,
+      text: 'every time with its skill. to recommend next steps',
+      translatedText: '',
+      indexStart: 0,
+      indexEnd: 1
+    }
+  ]);
+});
