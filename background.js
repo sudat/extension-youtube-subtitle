@@ -67,17 +67,39 @@ function getStoredTranslationConfig(stored, provider = stored?.translationProvid
   };
 }
 
-function buildPrompt(targetLanguage, srt) {
+function buildPrompt(targetLanguage, srt, context = {}) {
+  const previousOriginalSrt = String(context.previousOriginalSrt || '').trim();
+  const nextOriginalSrt = String(context.nextOriginalSrt || '').trim();
+  const previousTranslatedText = String(context.previousTranslatedText || '').trim();
+  const contextParts = [];
+
+  if (previousOriginalSrt) {
+    contextParts.push('Previous original context (reference only, do not translate these entries):', previousOriginalSrt);
+  }
+  if (nextOriginalSrt) {
+    contextParts.push('Next original context (reference only, do not translate these entries):', nextOriginalSrt);
+  }
+  if (previousTranslatedText) {
+    contextParts.push(`Previous ${targetLanguage} translation context (reference only):`, previousTranslatedText);
+  }
+
   return [
-    `Translate the following SRT subtitles into ${targetLanguage}.`,
+    `Translate the TARGET SRT subtitles into ${targetLanguage}.`,
     'Return a JSON array only.',
     'Keep the same number of subtitle entries.',
     'Each output item must correspond to exactly one input subtitle index.',
     'Do not merge, split, summarize, explain, omit, or reorder entries.',
-    'Translate only the subtitle text.',
+    'Use the reference context to make the target translation read naturally across subtitle boundaries.',
+    'Omit disposable filler words such as repeated "um, uh, er" or "ええと" when they do not add meaning.',
+    'Keep hesitation words when they carry meaning, tone, uncertainty, or intentional pacing.',
+    'Return translations only for TARGET SRT entries.',
+    'Translate only the TARGET subtitle text.',
     'Each item must be shaped as {"index": number, "text": string}.',
     'Do not include markdown fences or extra commentary.',
     '',
+    ...contextParts,
+    ...(contextParts.length ? [''] : []),
+    'TARGET SRT:',
     srt
   ].join('\n');
 }
@@ -140,13 +162,13 @@ function extractZAiMessageText(payload) {
   return '';
 }
 
-async function callGemini({ apiKey, model, targetLanguage, srt, entryCount }) {
+async function callGemini({ apiKey, model, targetLanguage, srt, entryCount, context }) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
   const body = {
     contents: [
       {
         role: 'user',
-        parts: [{ text: buildPrompt(targetLanguage, srt) }]
+        parts: [{ text: buildPrompt(targetLanguage, srt, context) }]
       }
     ],
     generationConfig: {
@@ -197,7 +219,7 @@ async function callGemini({ apiKey, model, targetLanguage, srt, entryCount }) {
   throw lastError || new Error('Gemini の呼び出しに失敗しました。');
 }
 
-async function callZAi({ apiKey, model, targetLanguage, srt }) {
+async function callZAi({ apiKey, model, targetLanguage, srt, context }) {
   const url = `${ZAI_CODING_BASE_URL}/chat/completions`;
   const body = {
     model,
@@ -212,7 +234,7 @@ async function callZAi({ apiKey, model, targetLanguage, srt }) {
       },
       {
         role: 'user',
-        content: buildPrompt(targetLanguage, srt)
+        content: buildPrompt(targetLanguage, srt, context)
       }
     ]
   };
@@ -253,14 +275,15 @@ async function callZAi({ apiKey, model, targetLanguage, srt }) {
   throw lastError || new Error('Z.AI の呼び出しに失敗しました。');
 }
 
-async function translateWithProvider({ provider, apiKey, model, targetLanguage, srt, entryCount }) {
+async function translateWithProvider({ provider, apiKey, model, targetLanguage, srt, entryCount, context }) {
   if (provider === ZAI_PROVIDER) {
     return callZAi({
       apiKey,
       model,
       targetLanguage,
       srt,
-      entryCount
+      entryCount,
+      context
     });
   }
 
@@ -269,7 +292,8 @@ async function translateWithProvider({ provider, apiKey, model, targetLanguage, 
     model,
     targetLanguage,
     srt,
-    entryCount
+    entryCount,
+    context
   });
 }
 
@@ -300,7 +324,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         model,
         targetLanguage: message.targetLanguage || 'Japanese',
         srt: message.srt || '',
-        entryCount: Number(message.entryCount || 0)
+        entryCount: Number(message.entryCount || 0),
+        context: message.context || {}
       });
 
       sendResponse({
@@ -319,3 +344,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   return true;
 });
+
+if (typeof module !== 'undefined') {
+  module.exports = {
+    buildPrompt
+  };
+}

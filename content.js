@@ -9,6 +9,7 @@
   const MAX_DISPLAY_GROUP_SIZE = 5;
   const DISPLAY_OFFSET_MS = 0;
   const TRANSLATION_WINDOW_SIZE = 3;
+  const TRANSLATION_CONTEXT_BLOCKS = 3;
   const COPY_FEEDBACK_MS = 1800;
   const GEMINI_PROVIDER = 'gemini';
   const ZAI_PROVIDER = 'z-ai';
@@ -1505,6 +1506,22 @@
     }).join('\n\n');
   }
 
+  function buildTranslationContext(windowMeta) {
+    const previousStartIndex = Math.max(0, windowMeta.startIndex - TRANSLATION_CONTEXT_BLOCKS);
+    const previousSegments = state.groupedSegments.slice(previousStartIndex, windowMeta.startIndex);
+    const nextSegments = state.groupedSegments.slice(windowMeta.endIndex + 1, windowMeta.endIndex + 1 + TRANSLATION_CONTEXT_BLOCKS);
+    const previousTranslatedText = previousSegments
+      .map((segment) => sanitizeText(segment.translatedText))
+      .filter(Boolean)
+      .join(' ');
+
+    return {
+      previousOriginalSrt: buildSrtFromSegments(previousSegments),
+      nextOriginalSrt: buildSrtFromSegments(nextSegments),
+      previousTranslatedText
+    };
+  }
+
   function stripCodeFences(text) {
     const body = String(text || '').trim();
     const match = body.match(/^```(?:srt|text)?\s*([\s\S]*?)\s*```$/i);
@@ -1710,7 +1727,8 @@
       model: translationConfig.model,
       targetLanguage: 'Japanese',
       entryCount: chunk.length,
-      srt: buildSrtFromSegments(chunk)
+      srt: buildSrtFromSegments(chunk),
+      context: buildTranslationContext(windowMeta)
     };
 
     try {
