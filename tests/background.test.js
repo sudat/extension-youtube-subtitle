@@ -9,7 +9,7 @@ global.chrome = {
   }
 };
 
-const { buildPrompt } = require('../background.js');
+const { buildPrompt, callGemini, callZAi } = require('../background.js');
 
 test('buildPrompt includes surrounding context without changing the target SRT entries', () => {
   const prompt = buildPrompt('Japanese', [
@@ -58,4 +58,116 @@ test('buildPrompt tells translators to omit disposable filler words but keep mea
   assert.match(prompt, /um, uh, er/);
   assert.match(prompt, /ええと/);
   assert.match(prompt, /Keep hesitation words when they carry meaning/);
+});
+
+test('callGemini retries when translation indexes do not match the requested entries', async () => {
+  const originalFetch = global.fetch;
+  const responses = [
+    [{ index: 1, text: 'ひとつめ' }, { index: 0, text: 'ふたつめ' }, { index: 0, text: 'みっつめ' }],
+    [{ index: 1, text: 'ひとつめ' }, { index: 2, text: 'ふたつめ' }, { index: 3, text: 'みっつめ' }]
+  ];
+  let fetchCount = 0;
+
+  global.fetch = async () => {
+    const entries = responses[fetchCount];
+    fetchCount += 1;
+    return {
+      ok: true,
+      async json() {
+        return {
+          candidates: [
+            {
+              content: {
+                parts: [{ text: JSON.stringify(entries) }]
+              }
+            }
+          ]
+        };
+      }
+    };
+  };
+
+  try {
+    const entries = await callGemini({
+      apiKey: 'test-key',
+      model: 'test-model',
+      targetLanguage: 'Japanese',
+      srt: [
+        '1',
+        '00:00:01,000 --> 00:00:02,000',
+        'one',
+        '',
+        '2',
+        '00:00:02,000 --> 00:00:03,000',
+        'two',
+        '',
+        '3',
+        '00:00:03,000 --> 00:00:04,000',
+        'three'
+      ].join('\n'),
+      entryCount: 3,
+      context: {}
+    });
+
+    assert.equal(fetchCount, 2);
+    assert.deepEqual(entries.map((entry) => entry.index), [1, 2, 3]);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('callZAi retries when translation indexes do not match the requested entries', async () => {
+  const originalFetch = global.fetch;
+  const responses = [
+    [{ index: 1, text: 'ひとつめ' }, { index: 0, text: 'ふたつめ' }, { index: 0, text: 'みっつめ' }],
+    [{ index: 1, text: 'ひとつめ' }, { index: 2, text: 'ふたつめ' }, { index: 3, text: 'みっつめ' }]
+  ];
+  let fetchCount = 0;
+
+  global.fetch = async () => {
+    const entries = responses[fetchCount];
+    fetchCount += 1;
+    return {
+      ok: true,
+      async json() {
+        return {
+          choices: [
+            {
+              message: {
+                content: JSON.stringify(entries)
+              }
+            }
+          ]
+        };
+      }
+    };
+  };
+
+  try {
+    const entries = await callZAi({
+      apiKey: 'test-key',
+      model: 'test-model',
+      targetLanguage: 'Japanese',
+      srt: [
+        '1',
+        '00:00:01,000 --> 00:00:02,000',
+        'one',
+        '',
+        '2',
+        '00:00:02,000 --> 00:00:03,000',
+        'two',
+        '',
+        '3',
+        '00:00:03,000 --> 00:00:04,000',
+        'three'
+      ].join('\n'),
+      entryCount: 3,
+      context: {}
+    });
+
+    assert.equal(fetchCount, 2);
+    assert.deepEqual(entries.map((entry) => entry.index), [1, 2, 3]);
+  } finally {
+    global.fetch = originalFetch;
+  }
 });

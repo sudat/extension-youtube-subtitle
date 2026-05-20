@@ -115,6 +115,8 @@ function buildTranslationSchema(entryCount) {
       properties: {
         index: {
           type: 'integer',
+          minimum: 1,
+          maximum: Math.max(1, entryCount),
           description: 'Original 1-based subtitle index from the input SRT.'
         },
         text: {
@@ -144,6 +146,27 @@ function parseStructuredTranslation(text, providerLabel) {
     index: Number(entry?.index),
     text: String(entry?.text || '')
   }));
+}
+
+function validateTranslationEntries(entries, entryCount, providerLabel) {
+  if (!Array.isArray(entries)) {
+    throw new Error(`${providerLabel} の翻訳結果の JSON 配列を受け取れませんでした。`);
+  }
+  if (entries.length !== entryCount) {
+    throw new Error(`${providerLabel} の翻訳 JSON の件数が一致しません。expected=${entryCount}, actual=${entries.length}`);
+  }
+
+  const expectedIndexes = entries.map((_entry, index) => index + 1);
+  const actualIndexes = entries.map((entry) => Number(entry?.index));
+  const indexesMatch = expectedIndexes.every((expected, index) => actualIndexes[index] === expected);
+  if (!indexesMatch) {
+    throw new Error(`${providerLabel} の翻訳 JSON の index が一致しません。expected=${expectedIndexes.join(',')}, actual=${actualIndexes.join(',')}`);
+  }
+
+  const nonEmptyCount = entries.filter((entry) => String(entry?.text || '').trim()).length;
+  if (nonEmptyCount < Math.ceil(entryCount / 2)) {
+    throw new Error(`${providerLabel} の翻訳結果の空行が多すぎるため採用しません。`);
+  }
 }
 
 function extractZAiMessageText(payload) {
@@ -206,7 +229,9 @@ async function callGemini({ apiKey, model, targetLanguage, srt, entryCount, cont
         throw new Error('Gemini から翻訳本文を受け取れませんでした。');
       }
 
-      return parseStructuredTranslation(text, 'Gemini');
+      const entries = parseStructuredTranslation(text, 'Gemini');
+      validateTranslationEntries(entries, entryCount, 'Gemini');
+      return entries;
     } catch (error) {
       lastError = error;
       if (attempt < 4) {
@@ -219,7 +244,7 @@ async function callGemini({ apiKey, model, targetLanguage, srt, entryCount, cont
   throw lastError || new Error('Gemini の呼び出しに失敗しました。');
 }
 
-async function callZAi({ apiKey, model, targetLanguage, srt, context }) {
+async function callZAi({ apiKey, model, targetLanguage, srt, entryCount, context }) {
   const url = `${ZAI_CODING_BASE_URL}/chat/completions`;
   const body = {
     model,
@@ -262,7 +287,9 @@ async function callZAi({ apiKey, model, targetLanguage, srt, context }) {
         throw new Error('Z.AI から翻訳本文を受け取れませんでした。');
       }
 
-      return parseStructuredTranslation(text, 'Z.AI');
+      const entries = parseStructuredTranslation(text, 'Z.AI');
+      validateTranslationEntries(entries, entryCount, 'Z.AI');
+      return entries;
     } catch (error) {
       lastError = error;
       if (attempt < 4) {
@@ -347,6 +374,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 if (typeof module !== 'undefined') {
   module.exports = {
-    buildPrompt
+    buildPrompt,
+    callGemini,
+    callZAi
   };
 }
