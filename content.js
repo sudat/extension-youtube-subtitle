@@ -83,6 +83,7 @@
       completedCount: 0,
       totalCount: 0,
       errorCount: 0,
+      runtimeUnavailable: false,
       priorityWindowIndex: null
     }
   };
@@ -93,6 +94,13 @@
 
   function log(...args) {
     console.debug('[YT Transcript Overlay]', ...args);
+  }
+
+  function isExtensionContextInvalidatedError(error) {
+    if (syncHelpers?.isExtensionContextInvalidatedError) {
+      return syncHelpers.isExtensionContextInvalidatedError(error);
+    }
+    return /extension context invalidated/i.test(String(error?.message || error || ''));
   }
 
   function injectBridge() {
@@ -1581,6 +1589,7 @@
       completedCount: 0,
       totalCount: 0,
       errorCount: 0,
+      runtimeUnavailable: false,
       priorityWindowIndex: null
     };
     for (const segment of state.groupedSegments) {
@@ -1619,6 +1628,11 @@
 
     if (!state.groupedSegments.length) {
       setTranslationStatus('翻訳対象の字幕を待機しています。', false);
+      return;
+    }
+
+    if (state.translation.runtimeUnavailable) {
+      setTranslationStatus('拡張機能が再読み込みされました。YouTube のページを再読み込みすると翻訳を再開できます。', true);
       return;
     }
 
@@ -1743,6 +1757,15 @@
       applyTranslatedWindow(windowMeta, chunk, response.entries);
     } catch (error) {
       if (state.translation.requestKey !== payload.requestKey) return;
+      if (isExtensionContextInvalidatedError(error)) {
+        state.translation.runtimeUnavailable = true;
+        state.translation.queue = [];
+        windowMeta.status = 'error';
+        windowMeta.message = '拡張機能が再読み込みされました。ページを再読み込みしてください。';
+        state.translation.errorCount += 1;
+        log('translation stopped because extension context was invalidated', nextWindowIndex, error);
+        return;
+      }
       windowMeta.status = 'error';
       windowMeta.message = error?.message || '翻訳に失敗しました。';
       state.translation.errorCount += 1;

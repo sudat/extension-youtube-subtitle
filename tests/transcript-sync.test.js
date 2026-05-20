@@ -6,6 +6,7 @@ const {
   buildSubtitleBoxStyle,
   findActiveGroupedIndex,
   groupTranscriptSegments,
+  isExtensionContextInvalidatedError,
   resolveSubtitleOverlayUiState,
   normalizeDisplayGroupSize,
   normalizeDisplayOffsetMs,
@@ -99,6 +100,17 @@ test('parseXmlTiming converts start/dur attributes from seconds to milliseconds'
       durRaw: '0.975'
     }),
     { startMs: 90500, durationMs: 975 }
+  );
+});
+
+test('isExtensionContextInvalidatedError detects Chrome extension reload failures', () => {
+  assert.equal(
+    isExtensionContextInvalidatedError(new Error('Extension context invalidated.')),
+    true
+  );
+  assert.equal(
+    isExtensionContextInvalidatedError({ message: 'Could not establish connection. Receiving end does not exist.' }),
+    false
   );
 });
 

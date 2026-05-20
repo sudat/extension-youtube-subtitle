@@ -199,12 +199,17 @@
     };
   }
 
+  function isExtensionContextInvalidatedError(error) {
+    return /extension context invalidated/i.test(String(error?.message || error || ''));
+  }
+
   return {
     buildTranscriptLoadPlan,
     buildSubtitleBoxStyle,
     finalizeTranscriptSegments,
     findActiveGroupedIndex,
     groupTranscriptSegments,
+    isExtensionContextInvalidatedError,
     normalizeDisplayGroupSize,
     normalizeDisplayOffsetMs,
     parseXmlTiming,
